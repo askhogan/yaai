@@ -24,3 +24,27 @@ td.asterisk_state		{	font-weight: bold; text-align: center;}
     font-size: 0.8em;
 }
 
+.tabTopBar {
+    height: 30px;
+}
+
+#dialpad {
+    background: url(custom/modules/Asterisk/include/images/dialpad-grid.png) no-repeat 0 2px;
+}
+
+#call_duration {
+    width: 20%;
+}
+
+#asterisk_info {
+    margin-top: -18px; 
+}
+
+#asterisk_data {
+    padding-bottom:0px;
+    margin-bottom:0px;
+}
+
+#caller_id_box {
+    display:none;
+}

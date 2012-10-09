@@ -4,6 +4,9 @@
 	width: 225px;
 	display:none;
 	z-index: 9999; /** Added by BR because pagination buttons were showing through **/
+        right: 20px; 
+        bottom: 0px; 
+        display: block;
 }
 
 .chatboxhead {

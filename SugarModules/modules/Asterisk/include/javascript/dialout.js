@@ -52,10 +52,10 @@ $(document).ready(function()
 			}		
 			
 			if( AST_UserExtention ) {
-				$(this).append('&nbsp;&nbsp;<img title="Extension Configured for Click To Dial is: ' + AST_UserExtention + '" src="custom/modules/Asterisk/include/call_active.gif" class="asterisk_placeCall" value="anrufen" style="cursor: pointer;"/>&nbsp;');	
+				$(this).append('&nbsp;&nbsp;<img title="Extension Configured for Click To Dial is: ' + AST_UserExtention + '" src="custom/modules/Asterisk/include/images/call_active.gif" class="asterisk_placeCall" value="anrufen" style="cursor: pointer;"/>&nbsp;');	
 			}
 			else {
-				$(this).append('&nbsp;&nbsp;<img title="No extension configured!  Go to user preferences to set your extension" src="custom/modules/Asterisk/include/call_noextset.gif" class="asterisk_placeCall" value="anrufen" style="cursor: pointer;"/>&nbsp;');	
+				$(this).append('&nbsp;&nbsp;<img title="No extension configured!  Go to user preferences to set your extension" src="custom/modules/Asterisk/include/images/call_noextset.gif" class="asterisk_placeCall" value="anrufen" style="cursor: pointer;"/>&nbsp;');	
 			}
 			
 			$('.asterisk_placeCall', this).click(function()

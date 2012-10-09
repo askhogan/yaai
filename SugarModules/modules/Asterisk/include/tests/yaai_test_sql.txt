@@ -1,0 +1,24 @@
+//dial 
+25	574109ed-6769-6c04-a74a-5072ef213f94	1349709666.59	Dial	NULL	+14153435295	NULL	SIP/7016-0000003c	SIP/flowroute-0000003b	2012-10-08 15:21:27	NULL	NULL	I	NULL	NULL	1349709666.60	NULL	NULL
+
+//inbound answered/ inbound connected
+19	58dfd459-3653-eea7-45aa-5072ea2b06fc	1349708426.53	Connected	NULL	+14153435295	NULL	SIP/7016-00000036	SIP/flowroute-00000035	2012-10-08 15:00:46	2012-10-08 15:00:50	NULL	I	NULL	NULL	1349708426.54	NULL	NULL
+
+//hangup
+19	58dfd459-3653-eea7-45aa-5072ea2b06fc	1349708426.53	Hangup	NULL	+14153435295	NULL	SIP/7016-00000036	SIP/flowroute-00000035	2012-10-08 15:00:46	2012-10-08 15:00:50	2012-10-08 15:01:39	I	16	Normal Clearing	1349708426.54	NULL	NULL
+
+//hangup closed
+19	58dfd459-3653-eea7-45aa-5072ea2b06fc	1349708426.53	Hangup	Closed	+14153435295	NULL	SIP/7016-00000036	SIP/flowroute-00000035	2012-10-08 15:00:46	2012-10-08 15:00:50	2012-10-08 15:01:39	I	16	Normal Clearing	1349708426.54	NULL	NULL
+
+//outbound call
+"INSERT INTO asterisk_log (asterisk_id, call_record_id, channel, remote_channel, callstate, direction, CallerID, timestampCall) VALUES('%s','%s','%s','%s','%s','%s','%s',%s)", $e['DestUniqueID'], $callRecordId, $eChannel, $eDestination, 'NeedID', 'O', $tmpCallerID, 'FROM_UNIXTIME('.time().')
+
+//inbound call
+INSERT INTO asterisk_log (asterisk_id, call_record_id, channel, remote_channel, callstate, direction, CallerID, timestampCall, asterisk_dest_id) VALUES('%s','%s','%s','%s','%s','%s','%s',%s,'%s')", $e['UniqueID'], $callRecordId, $eDestination, $eChannel, 'Dial', 'I', $tmpCallerID, time())', $e['DestUniqueID']
+
+
+//test inbound call
+
+INSERT INTO asterisk_log (asterisk_id, call_record_id, channel, remote_channel, callstate, direction, CallerID, timestampCall) VALUES ('1349708426.53', uuid(), 'SIP/7016-00000036', 'SIP/flowroute-00000035', 'Connected', 'I', '+14153435295', now());
+
+

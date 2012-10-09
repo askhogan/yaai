@@ -6,6 +6,10 @@
  */
 
 
+html, body {
+
+}
+
 #main_container {
 	width:100%;
 	background-color:#ffffff; /* DO NOT REMOVE THIS; or you'll have issue w/ the scrollbar, when the mouse pointer is on a white space */

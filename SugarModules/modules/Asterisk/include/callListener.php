@@ -51,11 +51,8 @@ global $mod_strings;
 
 
 // PROCEDURAL INSTRUCTIONS
-// initiate class
 $call_listener = new CallListener();
-// get calls in queue
 $result_set = $call_listener->get_calls($current_user);
-// get related contacts 
 $response = $call_listener->build_item_list($result_set, $current_user, $mod_strings);
 
 // print out json 
@@ -63,20 +60,13 @@ $response_array = array();
 if (count($response) == 0) {
     print json_encode(array("."));
 } else {
-    foreach ($response as $item) {
+    foreach ($response as $call) {
 
-        ob_start();
-        require('custom/modules/Asterisk/include/html/ShowCall.html');
-        $item['html'] = ob_get_contents();
-        $item['html'] = str_replace("\n", "", $item['html']);
-        $item['html'] = str_replace("\t", "", $item['html']);
-        $item['html'] = str_replace("\r", "", $item['html']);
-        ob_clean();
-
-        $response_array[] = $item;
+        $response_array[] = $call;
     }
     print json_encode($response_array);
     ob_flush();
+    exit();
 }
 
 sugar_cleanup();
@@ -84,7 +74,7 @@ sugar_cleanup();
 class CallListener {
 
     function __construct() {
-
+        
     }
 
     // HELPER FUNCTIONS
@@ -119,23 +109,33 @@ class CallListener {
         $response = array();
         while ($row = $current_user->db->fetchByAssoc($result_set)) {
 
-            $item = array(
+            $state = $this->set_call_state($row);
+            $phone_number = $this->set_callerid($row);
+            $contact_info = $this->set_contact_information($phone_number, $row, $current_user);
+            $call_direction = $this->set_call_direction($row);
+
+            $call = array(
                 'id' => $row['id'],
                 'asterisk_id' => $row['asterisk_id'],
-                'state' => $this->set_call_state($row),
+                'state' => $state,
                 'is_hangup' => $this->set_call_state($row) == $mod_strings['HANGUP'],
                 'call_record_id' => $row['call_record_id'],
-                'phone_number' => $this->set_callerid($row),
+                'phone_number' => $phone_number,
                 'asterisk_name' => $row['callerName'],
                 'asterisk_id' => $row['asterisk_id'],
                 'timestampCall' => $row['timestampCall'],
+                'title' => $this->set_title($contact_info['full_name'], $phone_number, $state),
+                'full_name' => $contact_info['full_name'],
+                'company' => $contact_info['company'],
+                'contact_id' => $contact_info['contact_id'],
+                'company_id' => $contact_info['company_id'],
+                'callerid' => $contact_info['callerid'],
+                'call_type' => $call_direction['call_type'],
+                'direction' => $call_direction['direction'],
                 'duration' => $this->set_duration($row),
             );
 
-            $item = $this->set_contact_information($item, $row, $current_user);
-            $item = $this->set_call_direction($item, $row);
-
-            $response[] = $item;
+            $response[] = $call;
 
             return $response;
         }
@@ -157,14 +157,10 @@ class CallListener {
 
     /**
      * Sets the callerid
-     *
-     * @param array  $item         Takes the whole item array from build_item_list
      * 
      * @param array  $row          Results from database call in build_item_list
      *
      * @return array               Returns the whole item array
-     * 
-     * @todo Should not be passing the whole state of $item into this function and instead make this function unaware of $item state
      */
     private function set_callerid($row) {
         $callPrefix = $this->get_call_prefix($row);
@@ -200,27 +196,25 @@ class CallListener {
 
     /**
      * Sets the call direction
-     *
-     * @param array  $item         Takes the whole item array from build_item_list
      * 
      * @param array  $row          Results from database call in build_item_list
      *
      * @return array               Returns the whole item array
-     * 
-     * @todo Should not be passing the whole state of $item into this function and instead make this function unaware of $item state
      */
-    private function set_call_direction($item, $row) {
+    private function set_call_direction($row) {
+        $result = array();
+
         if ($row['direction'] == 'I') {
-            $item['call_type'] = "ASTERISKLBL_COMING_IN";
-            $item['direction'] = "Inbound";
+            $result['call_type'] = "Inbound";
+            $result['direction'] = "Inbound";
         }
 
         if ($row['direction'] == 'O') {
-            $item['call_type'] = "ASTERISKLBL_GOING_OUT";
-            $item['direction'] = "Outbound";
+            $result['call_type'] = "Outbound";
+            $result['direction'] = "Outbound";
         }
 
-        return $item;
+        return $result;
     }
 
     private function set_duration($row) {
@@ -238,11 +232,10 @@ class CallListener {
         return $duration;
     }
 
-    private function set_contact_information($item, $row, $current_user) {
-// prepare phone number passed in
-        $phoneToFind = $item['phone_number'];
+    private function set_contact_information($phoneToFind, $row, $current_user) {
 
-// delete leading zeros
+        $result = array();
+
         $phoneToFind = ltrim($phoneToFind, '0');
         $phoneToFind = preg_replace('/\D/', '', $phoneToFind); // Removes and non digits such as + chars.
 
@@ -271,9 +264,9 @@ class CallListener {
 			        REGEXP '%s$' = 1
 			";
 
-//$sqlReplace= "REGEXP '%s$' = 1";
+
 // TODO fix the join so that account is optional... I think just add INNER
-            $selectPortion = "SELECT c.id as contact_id, first_name,	last_name,phone_work, phone_home, phone_mobile, phone_other, a.name as account_name, account_id "
+            $selectPortion = "SELECT c.id as contact_id, first_name, last_name, phone_work, phone_home, phone_mobile, phone_other, a.name as account_name, account_id "
                     . " FROM contacts c "
                     . " left join accounts_contacts ac on (c.id=ac.contact_id) and (ac.deleted='0' OR ac.deleted is null)"
                     . " left join accounts a on (ac.account_id=a.id) and (a.deleted='0' or a.deleted is null)";
@@ -295,6 +288,8 @@ class CallListener {
             $innerResultSet = $current_user->db->query($queryContact, false);
 
 
+/////// THIS IS A MONSTER - BREAK THIS UP INTO THREE DISTINCT METHODS OR USE ONE SIMPLER GET_CONTACTS & MOVE OUT UPDATE LOGIC 
+            
             $isMultipleContactCase = false;
             $radioButtonCode = "";
 
@@ -303,6 +298,8 @@ class CallListener {
                 $isMultipleContactCase = true;
             }
 
+            
+            
 // Once contact_id db column is set, $innerResultSet will only have a single row int it.
             while ($contactRow = $current_user->db->fetchByAssoc($innerResultSet)) {
                 $found['contactFullName'] = $contactRow['first_name'] . " " . $contactRow['last_name'];
@@ -310,9 +307,16 @@ class CallListener {
                 $found['contactId'] = $contactRow['contact_id'];
                 $found['companyId'] = $contactRow['account_id'];
 
-// Only used in multi match case.
                 $mouseOverTitle = "{$found['contactFullName']} - {$found['company']}"; // decided displaying <contact> - <account> took up too much space and 95% of the time you have multiple contacts its going to be from the same account... so we use mouse over to display account.
-                $radioButtonCode .= "<input type=radio name=contactSelect onclick=\"javascript:setContactId('{$row['call_record_id']}','{$found['contactId']}')\" value={$found['contactId']}>&nbsp;&nbsp;<a id=\"astmultcontact\" title=\"$mouseOverTitle\" href=\"index.php?module=Contacts&action=DetailView&record={$found['contactId']}\">{$found['contactFullName']}</a><BR>";
+                
+                $contacts = array(
+                    'call_record_id' => $row['call_record_id'],
+                    'contact_id' => $found['contactId'],
+                    'mouse_over_title' => $mouseOverTitle,
+                    'contact_full_name' => $found['contactFullName']
+                    
+                );
+                
                 if (empty($row['contact_id']) && !$isMultipleContactCase) {
                     $tempContactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contactRow['contact_id']);
                     $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
@@ -324,8 +328,24 @@ class CallListener {
             if ($isMultipleContactCase) {
                 $found['contactFullName'] = $mod_strings["ASTERISKLBL_MULTIPLE_MATCHES"];
             }
+            
+        }
 
-// Check OpenCNAM if we don't already have the Company Name in Sugar.
+///////// END MONSTER
+        
+        
+        $result['callerid'] = get_open_cnam_result($found, $row, $current_user);
+        $result['full_name'] = isset($found['contactFullName']) ? $found['contactFullName'] : "";
+        $result['company'] = isset($found['company']) ? $found['company'] : "";
+        $result['contact_id'] = isset($found['contactId']) ? $found['contactId'] : "";
+        $result['company_id'] = isset($found['companyId']) ? $found['companyId'] : "";
+
+        return $result;
+    }
+    
+    private function get_open_cnam_result($row, $current_user){
+        
+        // Check OpenCNAM if we don't already have the Company Name in Sugar.
             if (!isset($found['company']) && $GLOBALS['sugar_config']['asterisk_opencnam_enabled'] == "true") {
                 if ($row['opencnam'] == NULL) {
                     $tempCnamResult = opencnam_fetch($phoneToFind);
@@ -333,18 +353,11 @@ class CallListener {
                     $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
                     $cnamUpdateQuery = "UPDATE asterisk_log SET opencnam='$tempCnamResult' WHERE call_record_id='$tempCallRecordId'";
                     $current_user->db->query($cnamUpdateQuery, false);
-                    $row['opencnam'] = $tempCnamResult;
+                    $callerid = $tempCnamResult;
                 }
-                $item['callerid'] = $row['opencnam'];
             }
-        }
-
-        $item['full_name'] = isset($found['contactFullName']) ? $found['contactFullName'] : "";
-        $item['company'] = isset($found['company']) ? $found['company'] : "";
-        $item['contact_id'] = isset($found['contactId']) ? $found['contactId'] : "";
-        $item['company_id'] = isset($found['companyId']) ? $found['companyId'] : "";
-
-        return $item;
+        return $callerid;
+            
     }
 
     /**
@@ -374,6 +387,33 @@ class CallListener {
             $response = " "; // return a space character so it doesn't keep attempting to lookup number next time callListener is called.
         }
         return $response;
+    }
+    
+    private function is_multiple_contact_case(){
+        
+        
+    }
+
+    /**
+     * SET the title of the call
+     *
+     * @param string $phoneNumber         10 digit US telephone number
+     * 
+     * @return string                     title
+     *
+     * @todo implement a number cleaner that always formats input into 10 digits
+     */
+    private function set_title($full_name, $phone_number, $state) {
+        if (strlen($full_name) == 0) {
+            $title = $phone_number;
+        }
+        else{
+            $title = $full_name;
+        }
+
+        $title = $title . " - " . $state;
+
+        return $title;
     }
 
     /**
