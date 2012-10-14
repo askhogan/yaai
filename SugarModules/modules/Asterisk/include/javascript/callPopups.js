@@ -4,8 +4,10 @@
 // * 
 // * Parts of this code are (c) 2006. RustyBrick, Inc.  http://www.rustybrick.com/
 // * Parts of this code are (c) 2008 vertico software GmbH  
+// * Parts of this code are (c) 2009 Copyright (c) 2009 Anant Garg (anantgarg.com | inscripts.com)
 // * Parts of this code are (c) 2009 abcona e. K. Angelo Malaguarnera E-Mail admin@abcona.de
 // * Parts of this code are (c) 2011 Blake Robertson http://www.blakerobertson.com
+// * Parts of this code are (c) 2012 Patrick Hogan askhogan@gmail.com
 // * http://www.sugarforge.org/projects/yaai/
 // * Contribute To Project: http://www.github.com/blak3r/yaai
 // * 
@@ -32,602 +34,479 @@
 // * of this program must display Appropriate Legal Notices, as required under
 // * Section 5 of the GNU General Public License version 3.
 // * 
-// */
-var windowFocus = true;
-var username;
-var chatHeartbeatCount = 0;
-var minChatHeartbeat = 1000;
-var maxChatHeartbeat = 33000;
-var chatHeartbeatTime = minChatHeartbeat;
-var originalTitle;
-var blinkOrder = 0;
 
-var nextHeight = 0; // BR added
-
-var chatboxFocus = new Array();
-var newMessages = new Array();
-var newMessagesWin = new Array();
-var chatBoxes = new Array();
-var chatBoxCallRecordIds = new Array();
-var chatBoxCallDirections = new Array();
-var chatBoxContactNames = new Array();
-
-
-// look for new events logged from asterisk
-function checkForNewStates(){
-    // Note: once the user gets logged out, the ajax requests will get redirected to the login page.
-    // Originally, the setTimeout method was in this method.  But, no way to detect the redirect without server side
-    // changes.  See: http://stackoverflow.com/questions/199099/how-to-manage-a-redirect-request-after-a-jquery-ajax-call
-    // So, now I only schedule a setTimeout upon a successful AJAX call.  The only downside of this is if there is a legit reason
-    // the call does fail it'll never try again..
-    $.getJSON('index.php?module=Asterisk&action=get_calls', function(data){
-        checkData(data);
-    });	
-}
-
-function checkData(data){
-    var tmpList = new Array();
-	
-    // Note: AST_PollRate is set in AsteriskJS.php
-    setTimeout('checkForNewStates()', AST_PollRate); // Only when the previous request was successful do we try again.
-
-    console.log(data);
+var YAAI = {
+    nextHeight : '0',
+    callboxFocus : new Array(),
+    newMessages : new Array(),
+    callBoxes : new Array(),
+    callBoxCallRecordIds : new Array(),
+    callBoxCallDirections : new Array(),
+    sugarUserId : window.current_user_id,
+    
+    options : {
+        debug: true
+    },
+    
+    getCookies : function(){
+        var pairs = document.cookie.split(";");
+        var cookies = {};
+        for (var i=0; i<pairs.length; i++){
+            var pair = pairs[i].split("=");
+            cookies[pair[0]] = unescape(pair[1]);
+        }
+        return cookies;
+    },
+    
+    log : function(message) {
+        if (Switchboard.options.debug) {
+            console.log(message);
+        }
+    },
+    
+    checkForNewStates : function (){
+        // Note: once the user gets logged out, the ajax requests will get redirected to the login page.
+        // Originally, the setTimeout method was in this method.  But, no way to detect the redirect without server side
+        // changes.  See: http://stackoverflow.com/questions/199099/how-to-manage-a-redirect-request-after-a-jquery-ajax-call
+        // So, now I only schedule a setTimeout upon a successful AJAX call.  The only downside of this is if there is a legit reason
+        // the call does fail it'll never try again..
+        $.getJSON('index.php?entryPoint=AsteriskController&action=get_calls', function(data){
+            YAAI.checkData(data);
+        })
+        .error(function(){
+            console.log('there is a problem with getJSON')
+        });	
+    },
+    checkData : function(data){
+        console.log(data);
         
-    if( data == "." ) {
-    // do nothing
-    }
-    else { 
-        $.each(data, function(entryIndex, entry){
-			
-            //could actually leave callListener alone for now and simply change the UI based on the data being passed back.            
-                        
-            var astId = setAsteriskID(entry['asterisk_id']);
-            console.log(astId);
-            
-            tmpList.push(astId);            
+        var tmpList = new Array();
+        // Note: AST_PollRate is set in AsteriskJS.php
+        setTimeout('YAAI.checkForNewStates()', AST_PollRate); // Only when the previous request was successful do we try again.
+        
+        
+        if( data == "." ) {
+        // do nothing
+        }
+        else { 
+            $.each(data, function(entryIndex, entry){
+                console.log(entry);
+                var astId = YAAI.getAsteriskID(entry['asterisk_id']); 
+                tmpList.push(astId);            
 	    
-            //check if chatbox has already been created
-            if( -1 == $.inArray(astId, chatBoxes) ) {
-                createChatBox(astId, true, entry);
                 
-                //REDO THIS
-                
-                setChatContent(astId, entry['html'] );
-                chatBoxContactNames[astId] = entry['full_name'];
-				
-                if( entry['call_record_id'] == "-1" ) {
-                    alert( "Call Record ID returned from server is -1, unable to save call notes for " + title ); // TODO: disable the input box instead of this alert.
+                if(YAAI.callBoxHasNotAlreadyBeenCreated(astId)) {
+                    YAAI.createCallBox(astId, true, entry);
                 }
-            }
-            else {
-                $(".asterisk_state", "#chatbox_"+astId+" .chatboxcontent").text(entry['state']);
+                else {  
+                    YAAI.updateCallBox(astId, entry);
+                }	
+            });
+        }
+        YAAI.wasCallBoxClosedInAnotherBrowserWindow(tmpList);
 
-                // TODO this isn't going to work on other languages... Need to pass the language equivalent Hangup label
-                if( entry['is_hangup']  ) {
-                    $("#chatbox_"+astId+" .chatboxhead").css("background-color", "#f99d39");
-                    $("#transferImg_"+astId).hide(); // hide transfer icon once call is over.
+	
+    },
+    getAsteriskID : function(astId){
+    
+        var asterisk_id = astId.replace(/\./g,'-'); // ran into issues with jquery not liking '.' chars in id's so converted . -> -
+    
+        return asterisk_id;
+    },
+
+    isCallBoxClosed : function(callboxid) {
+        return $("#callbox_"+callboxid).css('display') == 'none';
+    },
+    
+    callBoxHasNotAlreadyBeenCreated : function(astId){
+        var open = (-1 == $.inArray(astId, YAAI.callBoxes));
+        
+        return open;
+    },
+
+    restructureCallBoxes : function(callboxid) {
+	
+        //  -----[ VERTICAL CHAT STACKING ]------------- //
+        var HEIGHT_MINIMIZED = 32;
+        var HEIGHT_NORMAL = 293;
+        var currHeight = 0;
+        for(var i=0; i < YAAI.callBoxes.length; i++ ) {
+            var callboxid = YAAI.callBoxes[i];
+		
+            if( !YAAI.isCallBoxClosed( callboxid ) ) {
+                $("#callbox_"+callboxid).css('bottom', currHeight+'px');
+			
+                if( YAAI.isCallBoxMinimized(callboxid) ) {
+                    currHeight += HEIGHT_MINIMIZED;
                 }
                 else {
-                    $("#chatbox_"+astId+" .chatboxhead").css("background-color", "#0D5995"); // a blue color
-                    $("#transferImg_"+astId).show();	
+                    currHeight += HEIGHT_NORMAL;
                 }
-                // entry['direction'] has Inbound vs Outbound
-                setChatTitle(astId, title);
-				
-                $(".call_duration", "#chatbox_"+astId+" .chatboxcontent").text( entry['duration'] ); // Updates duration
-
-                // Full name changes when, initially full name was blank or if user manually picks contact associated with call.
-                if( entry['full_name'] != chatBoxContactNames[astId] ) {
-                    setChatContent(astId,entry['html']);
-                }
-
             }
-			
-			
+        }
+        YAAI.nextHeight = currHeight;
+    // ^^^^^^^^^[ END VERTICAL CHAT STACKING ]^^^^^^^^^^^^^//
+	
+    },
+
+    createCallBox : function (callboxid, checkMinimizeCookie, entry) {
+        console.log(entry);
+        if ($("#callbox_"+callboxid).length > 0) {
+            if ($("#callbox_"+callboxid).css('display') == 'none') {
+                $("#callbox_"+callboxid).css('display','block');
+                YAAI.restructureCallBoxes(callboxid);
+            }
+            $("#callbox_"+callboxid+" .callboxtextarea").focus();
+            return;
+        }
+        
+        
+        
+        var source = $('#asterisk-template').html();
+        var template = Handlebars.compile(source);
+        var context = {
+            callbox_id : 'callbox_' + callboxid,
+            title : entry['title'],
+            transfer_image : 'transferImg_' + callboxid,
+            callboxtextarea : 'callboxtextarea_' + callboxid,
+            asterisk_info : callboxid,
+            asterisk_state : entry['state'],
+            call_type : entry['call_type'],
+            asterisk_id : callboxid,
+            duration : entry['duration'] + ' mins',
+            phone_number: entry['phone_number'],
+            caller_id: entry['caller_id'],
+            contacts: entry['contacts']
+        };
+        
+        Handlebars.registerHelper('each', function(context, options) {
+            var ret = "";
+
+            for(var i=0, j=context.length; i<j; i++) {
+                ret = ret + options.fn(context[i]);
+            }
+
+            return ret;
         });
-    }
-	
-    //alert( tmpList.length );
-    // Go through any checkboxes and see if any were closed in another browser window.
-    for(var i=0; i<chatBoxes.length; i++ ) {
-        if( -1 == $.inArray(chatBoxes[i], tmpList) ) {
-            if( chatboxFocus[i] || getMemoText(chatBoxes[i]).length > 0 ) {
-            // Don't auto close the chatbox b/c there is something entered or it has focus.
-            }
-            else {
-                // Prompt if something is in the input box maybe? or append it?
-                closeChatBox( chatBoxes[i] );
-                // Pop it from the array?
-				
-                //alert("didn't find " + chatBoxes[i] + " in tmpList");
-                $('#chatbox_'+chatBoxes[i]).css('display','none');
-                restructureChatBoxes();
-                chatBoxes.splice(i,1); // todo is chatBoxes.lenght above evaluated dynamically?
-            }
-        }
-    }
-
-	
-}
-
-$(document).ready(function(){
-    // no checking for the login page
-    if(location.href.indexOf('action=Login') == -1){
-        $('<div id="asterisk_ajaxContent" style="display:none;"></div>').prependTo('#main');
-        checkForNewStates();
-    }
-});
-
-
-
-
-
-/*************************************************/
-/*
-
-Copyright (c) 2009 Anant Garg (anantgarg.com | inscripts.com)
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
-
-*/
-
-
-//TODO This should be in PHP backend
-function setAsteriskID(astId){
-    
-    var asterisk_id = astId.replace(/\./g,'-'); // ran into issues with jquery not liking '.' chars in id's so converted . -> -
-    
-    return asterisk_id;
-}
-
-function isChatBoxClosed(chatboxid) {
-    return $("#chatbox_"+chatboxid).css('display') == 'none';
-}
-
-function restructureChatBoxes() {
-    /*  CODE USED FOR HORIZONTAL CHATS	
-	align = 0;
-	for (x in chatBoxes) {
-		chatboxid = chatBoxes[x];
-
-		if ($("#chatbox_"+chatboxid).css('display') != 'none') {
-			if (align == 0) {
-				$("#chatbox_"+chatboxid).css('right', '200px');
-			} else {
-				width = (align)*(225+7)+20;
-				$("#chatbox_"+chatboxid).css('right', width+'px');
-			}
-			align++;
-		}
-	}*/
-	
-    //  -----[ VERTICAL CHAT STACKING ]------------- //
-    var HEIGHT_MINIMIZED = 32;
-    var HEIGHT_NORMAL = 293;
-    var currHeight = 0;
-    for(var i=0; i<chatBoxes.length; i++ ) {
-        chatboxid = chatBoxes[i];
-		
-        if( !isChatBoxClosed( chatboxid ) ) {
-            $("#chatbox_"+chatboxid).css('bottom', currHeight+'px');
-			
-            if( isChatBoxMinimized(chatboxid) ) {
-                currHeight += HEIGHT_MINIMIZED;
-            }
-            else {
-                currHeight += HEIGHT_NORMAL;
-            }
-        }
-    }
-    nextHeight = currHeight;
-// ^^^^^^^^^[ END VERTICAL CHAT STACKING ]^^^^^^^^^^^^^//
-	
-}
-
-function createChatBox(chatboxid, checkMinimizeCookie, entry) {
-    var source;
-    var template;
-    var context;
-    var html;
-    
-        $.ajax({
-        url: 'custom/modules/Asterisk/include/templates/chatbox-template.html',
-        cache: true,
-        success: function(data) {
-            source    = data;
-            template  = Handlebars.compile(source);
-            context = {
-                chatbox_id : 'chatbox_' + chatboxid,
-                title : entry['title'],
-                transfer_image : 'transferImg_' + chatboxid,
-                chatboxtextarea : 'chatboxtextarea_' + chatboxid,
-                asterisk_info : chatboxid,
-                asterisk_state : entry['state'],
-                call_type : entry['call_type'],
-                asterisk_id : chatboxid,
-                duration : entry['duration'] + ' mins'
-                
-            }
-            html = template(context);
-            $('body').append(html);
-            $('.chatbox').show();
-            
-        }               
-    });
-    
-    
-    
-    if ($("#chatbox_"+chatboxid).length > 0) {
-        if ($("#chatbox_"+chatboxid).css('display') == 'none') {
-            $("#chatbox_"+chatboxid).css('display','block');
-            restructureChatBoxes();
-        }
-        $("#chatbox_"+chatboxid+" .chatboxtextarea").focus();
-        return;
-    }
-
-    /*old
-		
-    var theHtml = 	'<div class="chatboxhead" onclick="javascript:toggleChatBoxGrowth(\''+chatboxid+'\')" ><div class="chatboxtitle" >'	+
-    chatboxtitle+'</div><div class="chatboxoptions"><a href="javascript:void(0)" onclick="javascript:toggleChatBoxGrowth(\'' +
-    chatboxid+'\')">-</a> <a href="javascript:void(0)" style="font-size:110%;" onclick="javascript:closeChatBox(\''+
-    chatboxid+'\')">X</a></div><br clear="all"/></div><div class="chatboxcontent"></div><div class="chatboxinput"><textarea id="chatboxtextarea_'+
-    chatboxid+'" class="chatboxtextarea" onkeydown="javascript:return checkChatBoxInputKey(event,this,\''+chatboxid+'\');"></textarea>' +
-    '<div class="chatboxbuttons"><table width="100%"><tr><td valign="bottom"><span style="width=150px;" class="asterisk_save_status">&nbsp;</span>'+
-    '<img id="transferImg_'+
-    chatboxid + '" src="custom/modules/Asterisk/include/call_transfer-blue.png" height=19 title="Transfer Call" onclick="javascript:showTransferMenu(\'' + chatboxid + '\');"><TD align="right">'+
-    '<input style="" type="button" name="saveMemo" value="Save" onclick="javascript:saveMemo(\''+chatboxid+'\');"></table></div></div>';
-
-    $(" <div />" ).attr("id","chatbox_"+chatboxid)
-    .addClass("chatbox")
-    .html(theHtml)
-    .appendTo($( "body" ));
-    */
-	
-
+        
+        var html = template(context);
+        $('body').append(html);
+        $('.callbox').show();
    
-   
-	
-    setChatTitle(chatboxid,chatboxtitle);
+        YAAI.callBoxCallRecordIds[callboxid] = entry['call_record_id'];
+        YAAI.callBoxCallDirections[callboxid] = entry['direction'];
+        
 
-    chatBoxCallRecordIds[chatboxid]=chatboxcallrecordid;
-    //alert( getChatCallRecordId(chatboxid) + " is == " + chatboxcallrecordid);
-
-    chatBoxCallDirections[chatboxid]=direction;
-
-
-    /*  CODE USED FOR HORIZONTAL CHATS	
-	chatBoxeslength = 0;
-
-	for (x in chatBoxes) {
-		if ($("#chatbox_"+chatBoxes[x]).css('display') != 'none') {
-			chatBoxeslength++;
-		}
-	}
-
-	$("#chatbox_"+chatboxid).css('bottom', '0px');
-	if (chatBoxeslength == 0) {
-		$("#chatbox_"+chatboxid).css('right', '20px');
-	} else {
-		width = (chatBoxeslength)*(225+7)+20;
-		$("#chatbox_"+chatboxid).css('right', width+'px');
-	}
-	*/
-	
-
-    // Minimize each of the existing chatboxes, when new call comes in.
-    for( x=0; x<chatBoxes.length; x++ ) {
-        minimizeChatBox( chatBoxes[x] ); // updates a cookie each time... perhaps check first.
-    }
-	
-    // START VERTICAL
-    restructureChatBoxes();
-    $("#chatbox_"+chatboxid).css('right', '20px');
-    $("#chatbox_"+chatboxid).css('bottom', nextHeight+'px');
-    // END VERTICAL
-	
-    chatBoxes.push(chatboxid);
-
-    if (checkMinimizeCookie == 1) {
-		
-        // Check by looking at the cookie to see if it should be minimized or not.
-        minimizedChatBoxes = new Array();
-
-        if ($.cookie('chatbox_minimized')) {
-            minimizedChatBoxes = $.cookie('chatbox_minimized').split(/\|/);
+        // Minimize each of the existing callboxes, when new call comes in.
+        for( var x=0; x < YAAI.callBoxes.length; x++ ) {
+            YAAI.minimizeCallBox( YAAI.callBoxes[x] ); // updates a cookie each time... perhaps check first.
         }
-        minimize = 0;
-        for (j=0;j<minimizedChatBoxes.length;j++) {
-            if (minimizedChatBoxes[j] == chatboxid) {
-                minimize = 1;
+	
+        // START VERTICAL
+        YAAI.restructureCallBoxes();
+        $("#callbox_"+callboxid).css('right', '20px');
+        $("#callbox_"+callboxid).css('bottom', YAAI.nextHeight+'px');
+        // END VERTICAL
+        YAAI.callBoxes.push(callboxid);
+        
+
+        if (YAAI.checkMinimizeCookie == 1) {
+		
+            // Check by looking at the cookie to see if it should be minimized or not.
+            YAAI.minimizedCallBoxes = new Array();
+
+            if ($.cookie('callbox_minimized')) {
+                YAAI.minimizedCallBoxes = $.cookie('callbox_minimized').split(/\|/);
+            }
+            YAAI.minimize = 0;
+            for (var j=0;j<YAAI.minimizedCallBoxes.length;j++) {
+                if (YAAI.minimizedCallBoxes[j] == callboxid) {
+                    YAAI.minimize = 1;
+                }
+            }
+
+            if (YAAI.minimize == 1) {
+                $('#callbox_'+callboxid+' .callboxcontent').css('display','none');
+                $('#callbox_'+callboxid+' .callboxinput').css('display','none');
             }
         }
 
-        if (minimize == 1) {
-            $('#chatbox_'+chatboxid+' .chatboxcontent').css('display','none');
-            $('#chatbox_'+chatboxid+' .chatboxinput').css('display','none');
+        YAAI.callboxFocus[callboxid] = false;
+
+        $("#callbox_"+callboxid+" .callboxtextarea").blur(function(){
+            YAAI.callboxFocus[callboxid] = false;
+            $("#callbox_"+callboxid+" .callboxtextarea").removeClass('callboxtextareaselected');
+        }).focus(function(){
+            YAAI.callboxFocus[callboxid] = true;
+            YAAI.newMessages[callboxid] = false;
+            $('#callbox_'+callboxid+' .callboxhead').removeClass('callboxblink');
+            $("#callbox_"+callboxid+" .callboxtextarea").addClass('callboxtextareaselected');
+        });
+
+        $("#callbox_"+callboxid).click(function() {
+            if ($('#callbox_'+callboxid+' .callboxcontent').css('display') != 'none')
+            {
+                // TODO Investigate... this sets focus to textarea whenever anywhere is clicked in callbox, needs to be tweaked if I add other inputboxes and could be cause of focus stealing problems which happen occasionally.
+                $("#callbox_"+callboxid+" .callboxtextarea").focus();
+            }
+        });
+        
+        
+        if( entry['call_record_id'] == "-1" ) {
+            alert( "Call Record ID returned from server is -1, unable to save call notes for " + entry['title'] ); // TODO: disable the input box instead of this alert.
         }
-    }
 
-    chatboxFocus[chatboxid] = false;
+        $("#callbox_"+callboxid).show();
+    },
+    
+    updateCallBox : function (astId, entry){
+        $(".asterisk_state", "#callbox_"+astId+" .callboxcontent").text(entry['state']);
 
-    $("#chatbox_"+chatboxid+" .chatboxtextarea").blur(function(){
-        chatboxFocus[chatboxid] = false;
-        $("#chatbox_"+chatboxid+" .chatboxtextarea").removeClass('chatboxtextareaselected');
-    }).focus(function(){
-        chatboxFocus[chatboxid] = true;
-        newMessages[chatboxid] = false;
-        $('#chatbox_'+chatboxid+' .chatboxhead').removeClass('chatboxblink');
-        $("#chatbox_"+chatboxid+" .chatboxtextarea").addClass('chatboxtextareaselected');
-    });
-
-    $("#chatbox_"+chatboxid).click(function() {
-        if ($('#chatbox_'+chatboxid+' .chatboxcontent').css('display') != 'none')
-        {
-            // TODO Investigate... this sets focus to textarea whenever anywhere is clicked in chatbox, needs to be tweaked if I add other inputboxes and could be cause of focus stealing problems which happen occasionally.
-            $("#chatbox_"+chatboxid+" .chatboxtextarea").focus();
+        if( entry['is_hangup']  ) {
+            $("#callbox_"+astId+" .callboxhead").css("background-color", "#f99d39");
+            $("#transferImg_"+astId).hide(); // hide transfer icon once call is over.
         }
-    });
-
-    $("#chatbox_"+chatboxid).show();
-}
-
-function setChatContent( chatboxid, chatboxcontent ) {
-    $("#chatbox_"+chatboxid+" .chatboxcontent").html( chatboxcontent );
-}
-
-function setChatTitle( chatboxid, chatboxtitle ) {
-    if( chatboxtitle.length > 30 ) {
-        chatboxtitle = chatboxtitle.substr(0,27) + "...";
-    }
-  
-    $("#chatbox_"+chatboxid+" .chatboxtitle").html( chatboxtitle );
-}
-
-function getChatCallRecordId( chatboxid ) {
-    return chatBoxCallRecordIds[chatboxid];
-}
-
-function closeChatBox(chatboxid) {
-    if( !isChatBoxClosed(chatboxid) ) {
-        $('#chatbox_'+chatboxid).css('display','none');
-        restructureChatBoxes();
-		
-        callRecordId = getChatCallRecordId( chatboxid );
-
-        //if( callRecordId == null ) {
-        //    alert("Call popup notification logic error.  Please refresh page to close boxes. Length =" + chatBoxCallRecordIds )
-        //}
-
-        // NOTE: For some unknown reason, on pages with AJAX the array that getChatCallRecordId uses just returns null for known valid records...
-        //       Controller.php now looks at the id field as well for the callRecordId.  This is okay since the current implementation uses callRecordId for the chatboxid.
-
-        // Tells asterisk_log table that user has closed this entry.
-        $.post("index.php?entryPoint=AsteriskController&action=updateUIState", {
-            id: chatboxid, 
-            ui_state: "Closed", 
-            call_record: callRecordId
-        } );
-
-    }
-}
-
-// Called when clicking on radio buttons when multiple contacts exist.
-function setContactId( callRecordId, contactId) {
-    //alert("invoking setContactId");
-    $.post("index.php?entryPoint=AsteriskController&action=setContactId", {
-        call_record: callRecordId, 
-        contact_id: contactId
-    } );
-}
-
-// Updates the cookie which stores the state of all the chatboxes (whether minimized or maximized)
-// Only problem with this approach is on second browser window you might have them open differently... and this would save the state as such.
-function updateMinimizeCookie() {
-    var cookieVal="";
-	
-    for( var i=0; i< chatBoxes.length; i++ ) {
-		
-        if( isChatBoxMinimized( chatBoxes[i] ) ) {
-            cookieVal = chatBoxes[i] + "|";
+        else {
+            $("#callbox_"+astId+" .callboxhead").css("background-color", "#0D5995"); // a blue color
+            $("#transferImg_"+astId).show();	
         }
-    }
-	
-    cookieVal = cookieVal.substr(0, cookieVal.length - 1 ); // remove trailing "|"
-	
-    //alert(cookieVal);
-    $.cookie('chatbox_minimized', cookieVal);
-}
-
-// Method which minimizes and maximizes chat windows
-// Writes the state to a cookie 
-function toggleChatBoxGrowth(chatboxid) {
-    if (isChatBoxMinimized(chatboxid) ) {  
-        maximizeChatBox(chatboxid);
-    } 
-    else {	
-        minimizeChatBox(chatboxid);
-    }
-    restructureChatBoxes(); // BR added... only needed for vertical stack method.
-}
-
-
-function maximizeChatBox(chatboxid) {
-    $('#chatbox_'+chatboxid+' .chatboxcontent').css('display','block');
-    $('#chatbox_'+chatboxid+' .chatboxinput').css('display','block');
-    //$("#chatbox_"+chatboxid+" .chatboxcontent").scrollTop($("#chatbox_"+chatboxid+" .chatboxcontent")[0].scrollHeight);
 				
-    if( isChatBoxMinimized( chatboxid ) ) {
-        alert( chatboxid + " minimize state cookie fail (should be maximized)");
-    }
-		
-    updateMinimizeCookie();
-}
-
-
-function minimizeChatBox(chatboxid) {
-    $('#chatbox_'+chatboxid+' .chatboxcontent').css('display','none');
-    $('#chatbox_'+chatboxid+' .chatboxinput').css('display','none');
-		
-    if( !isChatBoxMinimized( chatboxid ) ) {
-        alert( chatboxid + " minimize state cookie fail");
-    }
-		
-    updateMinimizeCookie();
-}
-
-
-
-// I don't think this is used.
-function isChatBoxMinimized( chatboxid ) {
-
-    return $('#chatbox_'+chatboxid+' .chatboxcontent').css('display') == 'none';
-
-// Relying on the cookie wasn't working reliably enough.
-/*
-	if( $.cookie('chatbox_minimized') ) {
-		minimizedChatBoxes = $.cookie('chatbox_minimized').split(/\|/);
-		for ( var v=0;i<minimizedChatBoxes.length;i++) {
-			if (minimizedChatBoxes[v] == chatboxid) {
-				return true;
-			}
-		}
-	}
-	else {
-		alert ("Cookie doesn't exist");
-	}
-	
-	return false;
-*/
-}
-
-// Saves what is placed in the input box whenever call is saved.
-function checkChatBoxInputKey(event,chatboxtextarea,chatboxid) {
-	 
-    // 13 == Enter
-    if(event.keyCode == 13)  {
-        // CTRL + ENTER == quick save + close shortcut
-        if( event.ctrlKey == 1 ) {
-            saveMemo( chatboxid );
-            closeChatBox(chatboxid);
-            return false;
+        $(".call_duration", "#callbox_"+astId+" .callboxcontent").text( entry['duration'] ); // Updates duration
+    },
+    
+    wasCallBoxClosedInAnotherBrowserWindow : function  (tmpList){
+        for(var i=0; i < YAAI.callBoxes.length; i++ ) {
+            if( -1 == $.inArray(YAAI.callBoxes[i], tmpList) ) {
+                if( YAAI.callboxFocus[i] || YAAI.getMemoText(YAAI.callBoxes[i]).length > 0 ) {
+                // Don't auto close the callbox b/c there is something entered or it has focus.
+                }
+                else {
+                    YAAI.closeCallBox( YAAI.callBoxes[i] );
+                    // Pop it from the array?
+				
+                    $('#callbox_'+YAAI.callBoxes[i]).css('display','none');
+                    YAAI.restructureCallBoxes();
+                    YAAI.callBoxes.splice(i,1); // todo is callBoxes.lenght above evaluated dynamically?
+                }
+            }
         }
-        else if( event.shiftKey != 0 ) {
-            saveMemo( chatboxid );
-        //return false; // Returning false prevents return from adding a break.
+    },
+
+    getCallCallRecordId : function( callboxid ) {
+        return YAAI.callBoxCallRecordIds[callboxid];
+    },
+
+    closeCallBox : function(callboxid) {
+        if( !YAAI.isCallBoxClosed(callboxid) ) {
+            $('#callbox_'+callboxid).css('display','none');
+            YAAI.restructureCallBoxes();
+		
+            YAAI.callRecordId = YAAI.getCallCallRecordId( callboxid );   
+
+            // Tells asterisk_log table that user has closed this entry.
+            $.post("index.php?entryPoint=AsteriskController&action=updateUIState", {
+                id: callboxid, 
+                ui_state: "Closed", 
+                call_record: YAAI.callRecordId
+            } );
+
         }
-    }
+    },
 
-}
-
-function getMemoText( chatboxid ) {
-    var message = "";
-    chatboxtextarea = '#chatbox_'+chatboxid+' .chatboxinput .chatboxtextarea';
-    message = $(chatboxtextarea).val();
-    message = message.replace(/^\s+|\s+$/g,""); // Trims message
-	
-    return message;
-}
-
-function saveMemo( chatboxid ) {
-    message = getMemoText(chatboxid);
-		
-    //$(chatboxtextarea).val('');
-    $(chatboxtextarea).focus();
-    $(chatboxtextarea).css('height','44px');
-    if (message != '') {
-		
-        callRecordId = getChatCallRecordId( chatboxid );
-        var theDirection = chatBoxCallDirections[chatboxid];
-        //alert( chatboxid + "callid: " + callRecordId + "   " + chatBoxCallRecordIds[chatboxid]);
-
-        $.post("index.php?entryPoint=AsteriskController&action=memoSave", {
-            id: chatboxid, 
+    // Called when clicking on radio buttons when multiple contacts exist.
+    setContactId : function( callRecordId, contactId) {
+        //alert("invoking setContactId");
+        $.post("index.php?entryPoint=AsteriskController&action=setContactId", {
             call_record: callRecordId, 
-            description: message, 
-            direction: theDirection
-        } , function(data){
-            //message = message.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");
-            $("#chatbox_"+chatboxid+" .asterisk_save_status").html('Call Details Saved').css("display","block").fadeOut(5000); 
-				
-        });
-    }
-		
-    // If you don't want SAVE button to also close then comment out line below
-    closeChatBox(chatboxid);
-}
+            contact_id: contactId
+        } );
+    },
 
-function showTransferMenu( chatboxid, exten ) {
-    if( chatboxid != '' ) {
-        exten = prompt("Please enter the extension number you'd like to transfer to:\n(Leave Blank to cancel)","");
+    // Updates the cookie which stores the state of all the callboxes (whether minimized or maximized)
+    // Only problem with this approach is on second browser window you might have them open differently... and this would save the state as such.
+    updateMinimizeCookie : function() {
+        var cookieVal="";
+        console.log(YAAI.callBoxes.length);
+        for( var i=0; i< YAAI.callBoxes.length; i++ ) {
 		
-        if( exten != null && exten != '') {
-            //alert(exten);	
-            callRecordId = getChatCallRecordId( chatboxid );
-            $.post("index.php?entryPoint=AsteriskController&action=transfer", {
-                id: chatboxid, 
-                call_record: callRecordId, 
-                extension: exten
-            } , function(data){
-                //alert(data);
-                });
+            if( YAAI.isCallBoxMinimized( YAAI.callBoxes[i] ) ) {
+                cookieVal = YAAI.callBoxes[i] + "|";
+            }
         }
-    }
-}
+	
+        cookieVal = cookieVal.substr(0, cookieVal.length - 1 ); // remove trailing "|"
+	
+        console.log(cookieVal);
+        $.cookie('callbox_minimized', cookieVal);
+    },
+
+    // Method which minimizes and maximizes call windows
+    // Writes the state to a cookie 
+    toggleCallBoxGrowth : function(callboxid) {
+        if (YAAI.isCallBoxMinimized(callboxid) ) {  
+            YAAI.maximizeCallBox(callboxid);
+        } 
+        else {	
+            YAAI.minimizeCallBox(callboxid);
+        }
+        YAAI.restructureCallBoxes(); // BR added... only needed for vertical stack method.
+    },
 
 
-/**
+    maximizeCallBox : function(callboxid) {
+        $('#callbox_'+callboxid+' .callboxcontent').css('display','block');
+        $('#callbox_'+callboxid+' .callboxinput').css('display','block');
+        //$("#callbox_"+callboxid+" .callboxcontent").scrollTop($("#callbox_"+callboxid+" .callboxcontent")[0].scrollHeight);
+				
+        if( YAAI.isCallBoxMinimized( callboxid ) ) {
+            alert( callboxid + " minimize state cookie fail (should be maximized)");
+        }
+		
+        YAAI.updateMinimizeCookie();
+    },
+
+
+    minimizeCallBox : function(callboxid) {
+        $('#callbox_'+callboxid+' .callboxcontent').css('display','none');
+        $('#callbox_'+callboxid+' .callboxinput').css('display','none');
+		
+        if( !YAAI.isCallBoxMinimized( callboxid ) ) {
+            alert( callboxid + " minimize state cookie fail");
+        }
+		
+        YAAI.updateMinimizeCookie();
+    },
+
+
+
+    // I don't think this is used.
+    isCallBoxMinimized : function( callboxid ) {
+
+        return $('#callbox_'+callboxid+' .callboxcontent').css('display') == 'none';
+
+    },
+
+    // Saves what is placed in the input box whenever call is saved.
+    checkCallBoxInputKey : function(event,callboxtextarea,callboxid) {
+	 
+        // 13 == Enter
+        if(event.keyCode == 13)  {
+            // CTRL + ENTER == quick save + close shortcut
+            if( event.ctrlKey == 1 ) {
+                saveMemo( callboxid );
+                YAAI.closeCallBox(callboxid);
+                return false;
+            }
+            else if( event.shiftKey != 0 ) {
+                saveMemo( callboxid );
+            //return false; // Returning false prevents return from adding a break.
+            }
+        }
+
+    },
+
+    getMemoText : function( callboxid ) {
+        var message = "";
+        message = $('#callbox_'+callboxid+' .callboxinput .callboxtextarea').val();
+        message = message.replace(/^\s+|\s+$/g,""); // Trims message
+	
+        return message;
+    },
+
+    saveMemo : function( callboxid ) {
+        var message = YAAI.getMemoText(callboxid);
+		
+        $('#callbox_'+callboxid+' .callboxinput .callboxtextarea').focus();
+        $('#callbox_'+callboxid+' .callboxinput .callboxtextarea').css('height','44px');
+        if (message != '') {
+		
+            var callRecordId = YAAI.getCallCallRecordId( callboxid );
+            var theDirection = YAAI.callBoxCallDirections[callboxid];
+
+            $.post("index.php?entryPoint=AsteriskController&action=memoSave", {
+                id: callboxid, 
+                call_record: callRecordId, 
+                description: message, 
+                direction: theDirection
+            } , function(data){
+                //message = message.replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");
+                $("#callbox_"+callboxid+" .asterisk_save_status").html('Call Details Saved').css("display","block").fadeOut(5000); 
+				
+            });
+        }
+		
+        // If you don't want SAVE button to also close then comment out line below
+        YAAI.closeCallBox(callboxid);
+    },
+
+    showTransferMenu : function( callboxid, exten ) {
+        if( callboxid != '' ) {
+            exten = prompt("Please enter the extension number you'd like to transfer to:\n(Leave Blank to cancel)","");
+		
+            if( exten != null && exten != '') {
+                //alert(exten);	
+                var callRecordId = YAAI.getCallCallRecordId( callboxid );
+                $.post("index.php?entryPoint=AsteriskController&action=transfer", {
+                    id: callboxid, 
+                    call_record: callRecordId, 
+                    extension: exten
+                } , function(data){
+                    //alert(data);
+                    });
+            }
+        }
+    },
+    
+    
+    
+    ///ACTIONS
+    
+    
+
+
+    /**
  * Relate Contact Callback method.
  * This is called by the open_popup sugar call when a contact is selected.
  *
  * I basically copied the set_return method and added some stuff onto the bottom.  I couldn't figure out how to add
  * change events to my form elements.  This method wouldn't be needed if I figured that out.
  */
-var from_popup_return2  = false;
-function relate_popup_callback(popup_reply_data)
-{
-    from_popup_return2 = true;
-    var form_name = popup_reply_data.form_name;
-    var name_to_value_array = popup_reply_data.name_to_value_array;
-
-    for (var the_key in name_to_value_array)
+    relate_popup_callback : function(popup_reply_data)
     {
-        if(the_key == 'toJSON')
+        var from_popup_return2 = true;
+        var form_name = popup_reply_data.form_name;
+        var name_to_value_array = popup_reply_data.name_to_value_array;
+
+        for (var the_key in name_to_value_array)
         {
-        /* just ignore */
-        }
-        else
-        {
-            var displayValue=name_to_value_array[the_key].replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#039;/gi,'\'').replace(/&quot;/gi,'"');
-            ;
-            if(window.document.forms[form_name] && window.document.forms[form_name].elements[the_key])
+            if(the_key == 'toJSON')
             {
-                window.document.forms[form_name].elements[the_key].value = displayValue;
-                SUGAR.util.callOnChangeListers(window.document.forms[form_name].elements[the_key]);
+            /* just ignore */
+            }
+            else
+            {
+                var displayValue=name_to_value_array[the_key].replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#039;/gi,'\'').replace(/&quot;/gi,'"');
+                ;
+                if(window.document.forms[form_name] && window.document.forms[form_name].elements[the_key])
+                {
+                    window.document.forms[form_name].elements[the_key].value = displayValue;
+                    SUGAR.util.callOnChangeListers(window.document.forms[form_name].elements[the_key]);
+                }
             }
         }
+
+        // Everything above is from the default set_return method in parent_popup_helper.
+        var contactId = window.document.forms[form_name].elements['relateContactId'].value;
+        if( contactId != null ) {
+            //alert("Setting Contact Id");
+            YAAI.setContactId(form_name,contactId);
+        }
+        else {
+            alert("Error updating related Contact");
+        }
     }
 
-    // Everything above is from the default set_return method in parent_popup_helper.
-    var contactId = window.document.forms[form_name].elements['relateContactId'].value;
-    if( contactId != null ) {
-        //alert("Setting Contact Id");
-        setContactId(form_name,contactId);
-    }
-    else {
-        alert("Error updating related Contact");
-    }
 }
-
-
-
 
 /**
  * Cookie plugin
@@ -680,5 +559,15 @@ jQuery.cookie = function(name, value, options) {
         return cookieValue;
     }
 };
+
+
+$(document).ready(function(){
+    // no checking for the login page
+    if(location.href.indexOf('action=Login') == -1){
+        $('<div id="asterisk_ajaxContent" style="display:none;"></div>').prependTo('#main');
+        YAAI.checkForNewStates();
+        console.log('works');
+    }
+});
 
 

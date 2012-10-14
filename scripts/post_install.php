@@ -21,8 +21,13 @@ function post_install() {
 	  'auth' => true,
 	);
 
-	$entry_point_registry['AsteriskCallListener'] = array (
-	  'file' => 'custom/modules/Asterisk/include/callListener.php',
+	$entry_point_registry['AsteriskFakeDialer'] = array (
+	  'file' => 'custom/modules/Asterisk/include/tests/fake_dialer/test_ui.php',
+	  'auth' => true,
+	);
+	
+	$entry_point_registry['AsteriskFakeDialerActions'] = array (
+	  'file' => 'custom/modules/Asterisk/include/tests/fake_dialer/test_actions.php',
 	  'auth' => true,
 	);
 

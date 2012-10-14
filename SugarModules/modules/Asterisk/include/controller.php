@@ -32,11 +32,12 @@ $INBOUND_CALL_ABBR = $sugar_config['asterisk_call_subject_inbound_abbr']; //"IBC
 $OUTBOUND_CALL_ABBR = $sugar_config['asterisk_call_subject_outbound_abbr']; //"OBC";
 $MORE_INDICATOR = "..."; // When memo notes are longer then max length it displays this at the end to indicate the user should open the record for the rest of the notes.
 $MAX_CALL_SUBJECT_LENGTH = $sugar_config['asterisk_call_subject_max_length'];
-; // Set this to the max length you want the subject to be.  MUST BE SMALLER THEN DATABASE COLUMN SIZE which is 50 by default
 
 
+switch ($_REQUEST['action']){
 
-if ($_REQUEST['action'] == "memoSave") {
+
+case "memoSave" : 
 
     /**
       // DEBUG Stuff
@@ -93,7 +94,9 @@ if ($_REQUEST['action'] == "memoSave") {
 
     $focus->name = $subject;
     $focus->save();
-} else if ($_REQUEST['action'] == "updateUIState") {
+    break;
+   
+case "updateUIState" :
     $current_language = $_SESSION['authenticated_user_language'];
     if (empty($current_language)) {
         $current_language = $sugar_config['default_language'];
@@ -118,7 +121,10 @@ if ($_REQUEST['action'] == "memoSave") {
     if ($cUser->db->checkError()) {
         trigger_error("Update UIState-Query failed: $query");
     }
-} else if ($_REQUEST['action'] == "setContactId") {
+    break;
+    
+case "setContactId" :
+
     $current_language = $_SESSION['authenticated_user_language'];
     if (empty($current_language)) {
         $current_language = $sugar_config['default_language'];
@@ -158,7 +164,9 @@ if ($_REQUEST['action'] == "memoSave") {
     $focus->parent_id = $contactBean->account_id;
     $focus->parent_type = "Accounts";
     $focus->save();
-} else if ($_REQUEST['action'] == "call") {
+    break;
+    
+case "call" :
 
 // TODO: For some reason this code isn't working... I think it's getting the extension.
 // For the time being, callCreate is still being used.	
@@ -197,7 +205,8 @@ if ($_REQUEST['action'] == "memoSave") {
 
       SendAMICommand($cmd);
      */
-} else if ($_REQUEST['action'] == "transfer") {
+
+case "transfer" :
 
     $exten = preg_replace('/\D/', '', $_POST["extension"]); // removes anything that isn't a digit.
     if (empty($exten)) {
@@ -217,7 +226,7 @@ if ($_REQUEST['action'] == "memoSave") {
         $cmd = "ACTION: Redirect\r\nChannel: {$row['remote_channel']}\r\nContext: $context\r\nExten: $exten\r\nPriority: 1\r\n\r\n";
         SendAMICommand($cmd);
     }
-
+    break;
 
     // Inbound call trying, THIS WORKED!!!
     // 174-37-247-84*CLI> core show channels concise
@@ -228,8 +237,8 @@ if ($_REQUEST['action'] == "memoSave") {
     //$cmd ="ACTION: Redirect\r\nChannel: SIP/Flowroute-00000f59\r\nContext: from-internal\r\nExten: 208\r\nPriority: 1\r\n\r\n";
     //SendAMICommand($cmd);
     // At this point we should also update the channel in database
-} else if ($_REQUEST['action'] == "get_calls") {
 
+case "get_calls" :
 
     $result_set = get_calls($current_user);
     $response = build_item_list($result_set, $current_user, $mod_strings);
@@ -237,21 +246,26 @@ if ($_REQUEST['action'] == "memoSave") {
     $response_array = array();
     if (count($response) == 0) {
         print json_encode(array("."));
+        
     } else {
         foreach ($response as $call) {
 
             $response_array[] = $call;
         }
         print json_encode($response_array);
-        ob_flush();
     }
+    sugar_cleanup();
+    break;
     
-    //pass mod_strings for language support
+    
+default :
 
-    echo json_encode($response);
-} else {
-    echo "Undefined Action";
+    echo "undefined action";
+    break;
+    
 }
+
+
 
 /// Logs in, Sends the AMI Command Payload passed as a parameter, then logs out.
 /// results of the command are "echo"ed and get show up in ajax response for debugging.
@@ -315,172 +329,227 @@ function ReadResponse($socket) {
     return $retVal;
 }
 
-
 // HELPER FUNCTIONS
 
-    /**
-     * Get a list of calls from the database
-     *
-     * @param object $current_user    SugarCRM current_user object allows DB access
-     *
-     * @return array                  Array of calls from database
-     */
-    function get_calls($current_user) {
-        $last_hour = date('Y-m-d H:i:s', time() - 1 * 60 * 60);
-        $query = " SELECT * FROM asterisk_log WHERE \"$last_hour\" < timestampCall AND (uistate IS NULL OR uistate != \"Closed\") AND (callstate != 'NeedID') AND (channel LIKE 'SIP/{$current_user->asterisk_ext_c}%' OR channel LIKE 'Local%{$current_user->asterisk_ext_c}%')";
-        $result_set = $current_user->db->query($query, false);
-        if ($current_user->db->checkError()) {
-            trigger_error("checkForNewStates-Query failed: $query");
-        }
-        return $result_set;
+/**
+ * GET list of calls from the database
+ *
+ * @param object $current_user    SugarCRM current_user object allows DB access
+ *
+ * @return array                  Array of calls from database
+ */
+function get_calls($current_user) {
+    $last_hour = date('Y-m-d H:i:s', time() - 1 * 60 * 60);
+    $query = " SELECT * FROM asterisk_log WHERE \"$last_hour\" < timestampCall AND (uistate IS NULL OR uistate != \"Closed\") AND (callstate != 'NeedID') AND (channel LIKE 'SIP/{$current_user->asterisk_ext_c}%' OR channel LIKE 'Local%{$current_user->asterisk_ext_c}%')";
+    $result_set = $current_user->db->query($query, false);
+    if ($current_user->db->checkError()) {
+        trigger_error("checkForNewStates-Query failed: $query");
+    }
+    return $result_set;
+}
+
+/**
+ * Build the item list
+ *
+ * @param array  $result_set           Array of calls from database
+ * @param object $current_user         SugarCRM current_user object allows DB access
+ * @param array  $mod_strings          SugarCRM module strings 
+ *
+ */
+function build_item_list($result_set, $current_user, $mod_strings) {
+
+    $response = array();
+    while ($row = $current_user->db->fetchByAssoc($result_set)) {
+
+        $state = get_call_state($row);
+        $phone_number = get_callerid($row);
+        $call_direction = get_call_direction($row);
+
+        $call = array(
+            'id' => $row['id'],
+            'asterisk_id' => $row['asterisk_id'],
+            'state' => $state,
+            'is_hangup' => get_call_state($row) == $mod_strings['HANGUP'],
+            'call_record_id' => $row['call_record_id'],
+            'phone_number' => $phone_number,
+            'asterisk_name' => $row['callerName'],
+            'asterisk_id' => $row['asterisk_id'],
+            'timestampCall' => $row['timestampCall'],
+            'title' => get_title($contact_info['full_name'], $phone_number, $state),
+            'contacts' => get_contact_information($phone_number, $row, $current_user),
+            'call_type' => $call_direction['call_type'],
+            'direction' => $call_direction['direction'],
+            'duration' => get_duration($row),
+        );
+
+        $response[] = $call;
+    }
+    
+    return $response;
+    
+}
+
+/**
+ * GET the call state
+ *
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return string                     state of call
+ */
+function get_call_state($row) {
+    $state = isset($mod_strings[strtoupper($row['callstate'])]) ? $mod_strings[strtoupper($row['callstate'])] : $row['callstate'];
+    $state = "'" . $state . "'";
+
+    return $state;
+}
+
+/**
+ * GET the callerid
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns the whole item array
+ */
+function get_callerid($row) {
+    $callPrefix = get_call_prefix($row);
+
+    $tmpCallerID = trim($row['callerID']);
+    if ((strlen($callPrefix) > 0) && (strpos($tmpCallerID, $callPrefix) === 0)) {
+        $tmpCallerID = substr($tmpCallerID, strlen($callPrefix));
     }
 
-    /**
-     * Build the item list
-     *
-     * @param array  $result_set           Array of calls from database
-     * @param object $current_user         SugarCRM current_user object allows DB access
-     * @param array  $mod_strings          SugarCRM module strings 
-     *
-     */
-    function build_item_list($result_set, $current_user, $mod_strings) {
+    return $tmpCallerID;
+}
 
-        $response = array();
-        while ($row = $current_user->db->fetchByAssoc($result_set)) {
+/**
+ * GET the prefix of the call
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns the call prefix
+ */
+function get_call_prefix($row) {
+    $calloutPrefix = $GLOBALS['sugar_config']['asterisk_prefix'];
+    $callinPrefix = $GLOBALS['sugar_config']['asterisk_dialinPrefix'];
 
-            $state = $this->set_call_state($row);
-            $phone_number = $this->set_callerid($row);
-            $contact_info = $this->set_contact_information($phone_number, $row, $current_user);
-            $call_direction = $this->set_call_direction($row);
-
-            $call = array(
-                'id' => $row['id'],
-                'asterisk_id' => $row['asterisk_id'],
-                'state' => $state,
-                'is_hangup' => $this->set_call_state($row) == $mod_strings['HANGUP'],
-                'call_record_id' => $row['call_record_id'],
-                'phone_number' => $phone_number,
-                'asterisk_name' => $row['callerName'],
-                'asterisk_id' => $row['asterisk_id'],
-                'timestampCall' => $row['timestampCall'],
-                'title' => $this->set_title($contact_info['full_name'], $phone_number, $state),
-                'full_name' => $contact_info['full_name'],
-                'company' => $contact_info['company'],
-                'contact_id' => $contact_info['contact_id'],
-                'company_id' => $contact_info['company_id'],
-                'callerid' => $contact_info['callerid'],
-                'call_type' => $call_direction['call_type'],
-                'direction' => $call_direction['direction'],
-                'duration' => $this->set_duration($row),
-            );
-
-            $response[] = $call;
-
-            return $response;
-        }
+    if ($row['direction'] == 'I') {
+        $callPrefix = $callinPrefix;
+    }
+    if ($row['direction'] == 'O') {
+        $callPrefix = $calloutPrefix;
     }
 
-    /**
-     * Build the item list
-     *
-     * @param string $phoneNumber         10 digit US telephone number
-     *
-     * @return string                     state of call
-     */
-    function set_call_state($row) {
-        $state = isset($mod_strings[strtoupper($row['callstate'])]) ? $mod_strings[strtoupper($row['callstate'])] : $row['callstate'];
-        $state = "'" . $state . "'";
+    return $callPrefix;
+}
 
-        return $state;
+/**
+ * GET the call direction
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns the whole item array
+ */
+function get_call_direction($row) {
+    $result = array();
+
+    if ($row['direction'] == 'I') {
+        $result['call_type'] = "Incoming Call";
+        $result['direction'] = "Inbound";
     }
 
-    /**
-     * Sets the callerid
-     * 
-     * @param array  $row          Results from database call in build_item_list
-     *
-     * @return array               Returns the whole item array
-     */
-    function set_callerid($row) {
-        $callPrefix = $this->get_call_prefix($row);
-
-        $tmpCallerID = trim($row['callerID']);
-        if ((strlen($callPrefix) > 0) && (strpos($tmpCallerID, $callPrefix) === 0)) {
-            $tmpCallerID = substr($tmpCallerID, strlen($callPrefix));
-        }
-
-        return $tmpCallerID;
+    if ($row['direction'] == 'O') {
+        $result['call_type'] = "Outgoing Call";
+        $result['direction'] = "Outbound";
     }
 
-    /**
-     * Determine the prefix of the call
-     * 
-     * @param array  $row          Results from database call in build_item_list
-     *
-     * @return array               Returns the call prefix
-     */
-    function get_call_prefix($row) {
-        $calloutPrefix = $GLOBALS['sugar_config']['asterisk_prefix'];
-        $callinPrefix = $GLOBALS['sugar_config']['asterisk_dialinPrefix'];
+    return $result;
+}
 
-        if ($row['direction'] == 'I') {
-            $callPrefix = $callinPrefix;
-        }
-        if ($row['direction'] == 'O') {
-            $callPrefix = $calloutPrefix;
-        }
+/**
+ * GET the call duration
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns the whole item array
+ */
 
-        return $callPrefix;
+function get_duration($row) {
+    if (!empty($row['timestampHangup'])) {
+        $to_time = strtotime($row['timestampHangup']);
+    } else {
+        $to_time = time();
     }
 
-    /**
-     * Sets the call direction
-     * 
-     * @param array  $row          Results from database call in build_item_list
-     *
-     * @return array               Returns the whole item array
-     */
-    function set_call_direction($row) {
-        $result = array();
+    $from_time = strtotime($row['timestampCall']);
+    $duration = number_format(round(abs($to_time - $from_time) / 60, 1), 1);
 
-        if ($row['direction'] == 'I') {
-            $result['call_type'] = "Inbound";
-            $result['direction'] = "Inbound";
-        }
+    return $duration;
+}
 
-        if ($row['direction'] == 'O') {
-            $result['call_type'] = "Outbound";
-            $result['direction'] = "Outbound";
-        }
+/**
+ * GET contacts array
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns the whole item array
+ */
 
-        return $result;
+function get_contact_information($phone_number, $row, $current_user) {
+    $innerResultSet = fetch_contacts_associated_to_phone_number($phone_number, $row, $current_user);
+
+    if ($innerResultSet->num_rows == 1) {
+        update_contact_id_when_one_contact($current_user, $row);
     }
+    
+    $contacts = get_contacts($innerResultSet, $current_user, $row);
+ 
+    return $contacts;
+}
 
-    function set_duration($row) {
+/**
+ * GET contacts from database
+ * 
+ * @param array  $innerResultSet  Results from function fetch_contacts_associated_to_phone_number
+ * 
+ * @param object  $current_user Global current_user object - allows db access
+ * 
+ * @param array  $row          Results from database call in build_item_list
+ *
+ * @return array               Returns contacts
+ */
 
-
-        if (!empty($row['timestampHangup'])) {
-            $to_time = strtotime($row['timestampHangup']);
-        } else {
-            $to_time = time();
-        }
-
-        $from_time = strtotime($row['timestampCall']);
-        $duration = number_format(round(abs($to_time - $from_time) / 60, 1), 1);
-
-        return $duration;
+function get_contacts($innerResultSet, $current_user, $row) {
+    $contacts = array();
+    
+    while ($contactRow = $current_user->db->fetchByAssoc($innerResultSet)) {
+        $contact = array(
+            'contact_id' => $contactRow['contact_id'],
+            'contact_full_name' => $contactRow['first_name'] . " " . $contactRow['last_name'],
+            'company' => $contactRow['account_name'],
+            'company_id' => $contactRow['account_id']
+        );
+        
+        $contacts[] = $contact;
     }
+    
+    
+    
+    return $contacts;
+}
 
-    function set_contact_information($phoneToFind, $row, $current_user) {
+function update_contact_id_when_one_contact($current_user, $row) {
+    $tempContactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contactRow['contact_id']);
+    $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
+    $insertQuery = "UPDATE asterisk_log SET contact_id='$tempContactId' WHERE call_record_id='$tempCallRecordId'";
+    $current_user->db->query($insertQuery, false);
+}
 
-        $result = array();
+function fetch_contacts_associated_to_phone_number($phoneToFind, $row, $current_user) {
+    $phoneToFind = ltrim($phoneToFind, '0');
+    $phoneToFind = preg_replace('/\D/', '', $phoneToFind); // Removes and non digits such as + chars.
 
-        $phoneToFind = ltrim($phoneToFind, '0');
-        $phoneToFind = preg_replace('/\D/', '', $phoneToFind); // Removes and non digits such as + chars.
-
-        $found = array();
-        if (strlen($phoneToFind) > 5) {
-            $sqlReplace = "
+    if (strlen($phoneToFind) > 5) {
+        $sqlReplace = "
 			    replace(
 			    replace(
 			    replace(
@@ -505,183 +574,136 @@ function ReadResponse($socket) {
 
 
 // TODO fix the join so that account is optional... I think just add INNER
-            $selectPortion = "SELECT c.id as contact_id, first_name, last_name, phone_work, phone_home, phone_mobile, phone_other, a.name as account_name, account_id "
-                    . " FROM contacts c "
-                    . " left join accounts_contacts ac on (c.id=ac.contact_id) and (ac.deleted='0' OR ac.deleted is null)"
-                    . " left join accounts a on (ac.account_id=a.id) and (a.deleted='0' or a.deleted is null)";
+        $selectPortion = "SELECT c.id as contact_id, first_name, last_name, phone_work, phone_home, phone_mobile, phone_other, a.name as account_name, account_id "
+                . " FROM contacts c "
+                . " left join accounts_contacts ac on (c.id=ac.contact_id) and (ac.deleted='0' OR ac.deleted is null)"
+                . " left join accounts a on (ac.account_id=a.id) and (a.deleted='0' or a.deleted is null)";
 
-            if ($row['contact_id']) {
-                $wherePortion = " WHERE c.id='{$row['contact_id']}' and c.deleted='0'";
-            }
+        if ($row['contact_id']) {
+            $wherePortion = " WHERE c.id='{$row['contact_id']}' and c.deleted='0'";
+        }
 // We only do this expensive query if it's not already set!
-            else {
-                $wherePortion = " WHERE (";
-                $wherePortion .= sprintf($sqlReplace, "phone_work", $phoneToFind) . " OR ";
-                $wherePortion .= sprintf($sqlReplace, "phone_home", $phoneToFind) . " OR ";
-                $wherePortion .= sprintf($sqlReplace, "phone_other", $phoneToFind) . " OR ";
-                $wherePortion .= sprintf($sqlReplace, "assistant_phone", $phoneToFind) . " OR ";
-                $wherePortion .= sprintf($sqlReplace, "phone_mobile", $phoneToFind) . ") and c.deleted='0'";
-            }
-
-            $queryContact = $selectPortion . $wherePortion;
-            $innerResultSet = $current_user->db->query($queryContact, false);
-
-
-/////// THIS IS A MONSTER - BREAK THIS UP INTO THREE DISTINCT METHODS OR USE ONE SIMPLER GET_CONTACTS & MOVE OUT UPDATE LOGIC 
-            
-            $isMultipleContactCase = false;
-            $radioButtonCode = "";
-
-
-            if ($innerResultSet->num_rows > 1) {
-                $isMultipleContactCase = true;
-            }
-
-            
-            
-// Once contact_id db column is set, $innerResultSet will only have a single row int it.
-            while ($contactRow = $current_user->db->fetchByAssoc($innerResultSet)) {
-                $found['contactFullName'] = $contactRow['first_name'] . " " . $contactRow['last_name'];
-                $found['company'] = $contactRow['account_name'];
-                $found['contactId'] = $contactRow['contact_id'];
-                $found['companyId'] = $contactRow['account_id'];
-
-                $mouseOverTitle = "{$found['contactFullName']} - {$found['company']}"; // decided displaying <contact> - <account> took up too much space and 95% of the time you have multiple contacts its going to be from the same account... so we use mouse over to display account.
-                
-                $contacts = array(
-                    'call_record_id' => $row['call_record_id'],
-                    'contact_id' => $found['contactId'],
-                    'mouse_over_title' => $mouseOverTitle,
-                    'contact_full_name' => $found['contactFullName']
-                    
-                );
-                
-                if (empty($row['contact_id']) && !$isMultipleContactCase) {
-                    $tempContactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contactRow['contact_id']);
-                    $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
-                    $insertQuery = "UPDATE asterisk_log SET contact_id='$tempContactId' WHERE call_record_id='$tempCallRecordId'";
-                    $current_user->db->query($insertQuery, false);
-                }
-            }
-
-            if ($isMultipleContactCase) {
-                $found['contactFullName'] = $mod_strings["ASTERISKLBL_MULTIPLE_MATCHES"];
-            }
-            
+        else {
+            $wherePortion = " WHERE (";
+            $wherePortion .= sprintf($sqlReplace, "phone_work", $phoneToFind) . " OR ";
+            $wherePortion .= sprintf($sqlReplace, "phone_home", $phoneToFind) . " OR ";
+            $wherePortion .= sprintf($sqlReplace, "phone_other", $phoneToFind) . " OR ";
+            $wherePortion .= sprintf($sqlReplace, "assistant_phone", $phoneToFind) . " OR ";
+            $wherePortion .= sprintf($sqlReplace, "phone_mobile", $phoneToFind) . ") and c.deleted='0'";
         }
 
-///////// END MONSTER
-        
-        
-        $result['callerid'] = get_open_cnam_result($found, $row, $current_user);
-        $result['full_name'] = isset($found['contactFullName']) ? $found['contactFullName'] : "";
-        $result['company'] = isset($found['company']) ? $found['company'] : "";
-        $result['contact_id'] = isset($found['contactId']) ? $found['contactId'] : "";
-        $result['company_id'] = isset($found['companyId']) ? $found['companyId'] : "";
-
-        return $result;
+        $queryContact = $selectPortion . $wherePortion;
+        return $current_user->db->query($queryContact, false);
     }
-    
-    function get_open_cnam_result($row, $current_user){
-        
-        // Check OpenCNAM if we don't already have the Company Name in Sugar.
-            if (!isset($found['company']) && $GLOBALS['sugar_config']['asterisk_opencnam_enabled'] == "true") {
-                if ($row['opencnam'] == NULL) {
-                    $tempCnamResult = opencnam_fetch($phoneToFind);
-                    $tempCnamResult = preg_replace('/[^a-z0-9\-\. ]/i', '', $tempCnamResult);
-                    $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
-                    $cnamUpdateQuery = "UPDATE asterisk_log SET opencnam='$tempCnamResult' WHERE call_record_id='$tempCallRecordId'";
-                    $current_user->db->query($cnamUpdateQuery, false);
-                    $callerid = $tempCnamResult;
-                }
-            }
-        return $callerid;
-            
-    }
+}
 
-    /**
-     * GET the opencnam callerid information
-     *
-     * @param string $phoneNumber         10 digit US telephone number
-     * 
-     * @return array fetch results of OpenCNAM lookup
-     *
-     * @todo implement a number cleaner that always formats input into 10 digits
-     */
-    function opencnam_fetch($phoneNumber) {
-        $request_url = "https://api.opencnam.com/v1/phone/" . $phoneNumber . "?format=text";
-        $found = false;
-        $i = 0;
-        do {
-            $response = file_get_contents($request_url); // First call returns with 404 immediately with free api, 2nd call will succeed. See https://github.com/blak3r/yaai/issues/5
-            // "Currently running a lookup for phone '7858647222'. Please check back in a few seconds."
-            if (empty($response) || strpos($response, "running a lookup") !== false) {
-                usleep(1000000 * ($i)); // wait 500ms, 1000ms, then 1500ms, etc.
-                // 2:25pm uped to 500,000 8x
-            } else {
-                $found = true;
-            }
-        } while ($i++ < 7 && $found == false);
-        if (empty($response)) {
-            $response = " "; // return a space character so it doesn't keep attempting to lookup number next time callListener is called.
+
+/**
+ * GET the opencnam callerid information
+ *
+ * @param array  $row          Results from database call in build_item_list
+ * 
+ * @param object  $current_user Global current_user object - allows db access
+ * 
+ * @return array $callerid    Returns the callerid information         
+ *
+ * @todo implement a number cleaner that always formats input into 10 digits
+ */
+
+function get_open_cnam_result($row, $current_user) {
+
+    // Check OpenCNAM if we don't already have the Company Name in Sugar.
+    if (!isset($found['company']) && $GLOBALS['sugar_config']['asterisk_opencnam_enabled'] == "true") {
+        if ($row['opencnam'] == NULL) {
+            $tempCnamResult = opencnam_fetch(get_callerid($row));
+            $tempCnamResult = preg_replace('/[^a-z0-9\-\. ]/i', '', $tempCnamResult);
+            $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
+            $cnamUpdateQuery = "UPDATE asterisk_log SET opencnam='$tempCnamResult' WHERE call_record_id='$tempCallRecordId'";
+            $current_user->db->query($cnamUpdateQuery, false);
+            $callerid = $tempCnamResult;
         }
-        return $response;
     }
-    
-    function is_multiple_contact_case(){
-        
-        
-    }
+    return $callerid;
+}
 
-    /**
-     * SET the title of the call
-     *
-     * @param string $phoneNumber         10 digit US telephone number
-     * 
-     * @return string                     title
-     *
-     * @todo implement a number cleaner that always formats input into 10 digits
-     */
-    function set_title($full_name, $phone_number, $state) {
-        if (strlen($full_name) == 0) {
-            $title = $phone_number;
+/**
+ * Fetch a list of records from OpenCNAM
+ *
+ * @param string $phoneNumber         10 digit US telephone number
+ * 
+ * @return array fetch results of OpenCNAM lookup
+ *
+ * @todo implement a number cleaner that always formats input into 10 digits
+ */
+function opencnam_fetch($phoneNumber) {
+    $request_url = "https://api.opencnam.com/v1/phone/" . $phoneNumber . "?format=text";
+    $found = false;
+    $i = 0;
+    do {
+        $response = file_get_contents($request_url); // First call returns with 404 immediately with free api, 2nd call will succeed. See https://github.com/blak3r/yaai/issues/5
+        // "Currently running a lookup for phone '7858647222'. Please check back in a few seconds."
+        if (empty($response) || strpos($response, "running a lookup") !== false) {
+            usleep(1000000 * ($i)); // wait 500ms, 1000ms, then 1500ms, etc.
+            // 2:25pm uped to 500,000 8x
+        } else {
+            $found = true;
         }
-        else{
-            $title = $full_name;
-        }
+    } while ($i++ < 7 && $found == false);
+    if (empty($response)) {
+        $response = " "; // return a space character so it doesn't keep attempting to lookup number next time callListener is called.
+    }
+    return $response;
+}
 
-        $title = $title . " - " . $state;
-
-        return $title;
+/**
+ * GET the title of the call
+ *
+ * @param string $full_name         Full name of
+ * 
+ * @param string $phoneNumber         10 digit US telephone number
+ * 
+ * @return string                     title
+ *
+ */
+function get_title($full_name, $phone_number, $state) {
+    if (strlen($full_name) == 0) {
+        $title = $phone_number;
+    } else {
+        $title = $full_name;
     }
 
-    /**
-     * Helper method for logging 
-     *
-     * @param string $str    The string you want to log
-     * @param string $file   The log file you want to log to
-     */
-    function log_entry($str, $file = "default") {
-        $handle = fopen($file, 'a');
-        fwrite($handle, "[" . date('Y-m-j H:i:s') . "] " . $str);
-        fclose($handle);
-    }
+    $title = $title . " - " . $state;
 
-    /**
-     * Helper method for converting print_r into a nicely formated string for logging
-     *
-     * @param string $str    The string you want to log
-     *
-     * @return string The string of the array data you want to print
-     */
-    function printrs($data) {
-        $str = "";
-        if ($data) {
-            $str = '<pre>\n';
-            $str .= print_r($data, TRUE);
-            $str .= '</pre>\n';
-        }
-        return $str;
+    return $title;
+}
+
+/**
+ * Helper method for logging 
+ *
+ * @param string $str    The string you want to log
+ * @param string $file   The log file you want to log to
+ */
+function log_entry($str, $file = "default") {
+    $handle = fopen($file, 'a');
+    fwrite($handle, "[" . date('Y-m-j H:i:s') . "] " . $str);
+    fclose($handle);
+}
+
+/**
+ * Helper method for converting print_r into a nicely formated string for logging
+ *
+ * @param string $str    The string you want to log
+ *
+ * @return string The string of the array data you want to print
+ */
+function printrs($data) {
+    $str = "";
+    if ($data) {
+        $str = '<pre>\n';
+        $str .= print_r($data, TRUE);
+        $str .= '</pre>\n';
     }
+    return $str;
+}
 
 ?>
