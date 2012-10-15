@@ -4,18 +4,17 @@ var FakeDialer = {
     
     call_counter: 1,
     call_setup_data: {},
+ 
+    action : function (id, extension, phone_number){
     
-    
-    action : function (id, extension){
-    
-        FakeDialer.determine_action(id, extension);
+        FakeDialer.determine_action(id, extension, phone_number);
     },
 
-    determine_action : function(id, extension){
+    determine_action : function(id, extension, phone_number){
         var call_number = id.charAt(id.length-1);
 
-        if(id.search("dial") >= 0){
-            FakeDialer.action_dial(call_number, extension);
+        if(id.search("ringing") >= 0){
+            FakeDialer.action_ringing(call_number, extension, phone_number);
         }
         
         if(id.search("connected") >= 0){
@@ -32,17 +31,24 @@ var FakeDialer = {
 
     },
 
-    action_dial : function(call_number, extension){
+    action_ringing : function(call_number, extension, phone_number){   
         $.ajax({
             url:"index.php?entryPoint=AsteriskFakeDialerActions",
             data: {
-                action: 'dial',
-                extension: extension     
+                action: 'ringing',
+                extension: extension,
+                phone_number: phone_number
             }, 
             type: "POST",			
             success: function(transport){      
                 var call_data = $.parseJSON(transport);
-            
+                //create contacts
+                if($('#radio :radio:checked').val() >= 1){
+                    var contacts = FakeDialer.action_create_contacts();
+                    if(contacts['contact_1']){call_data['contact_1'] = contacts['contact_1']}
+                    if(contacts['contact_2']){call_data['contact_2'] = contacts['contact_2']}
+                }
+                
                 FakeDialer.call_setup_data[call_number] = call_data;
             },
             error: function (jqXHR, textStatus, thrownError){
@@ -61,10 +67,8 @@ var FakeDialer = {
                 call_record_id: FakeDialer.call_setup_data[call_number]['call_record_id']     
             }, 
             type: "POST",			
-            success: function(call_record_id){
-                $('#dial_'+call_number).removeClass( "ui-state-highlight" );
-        
-            //could take ui-state off dialed
+            success: function(){
+                $('#ringing_'+call_number).removeClass( "ui-state-highlight" );
             },
             error: function (jqXHR, textStatus, thrownError){
                 console.log(jqXHR.status);
@@ -74,18 +78,16 @@ var FakeDialer = {
         });
     },
 
-    action_hangup : function(call_number, extension){
+    action_hangup : function(call_number, extension){   
         $.ajax({
             url:"index.php?entryPoint=AsteriskFakeDialerActions",
             data: {
                 action: 'hangup',
-                call_record_id: FakeDialer.call_setup_data[call_number]['call_record_id']    
+                call_record_id: FakeDialer.call_setup_data[call_number]['call_record_id']     
             }, 
             type: "POST",			
-            success: function(call_record_id){
+            success: function(){
                 $('#connected_'+call_number).removeClass( "ui-state-highlight" );
-        
-            //could take ui-state off dialed
             },
             error: function (jqXHR, textStatus, thrownError){
                 console.log(jqXHR.status);
@@ -96,19 +98,21 @@ var FakeDialer = {
     },
 
     action_closed : function(call_number, extension){
+        var data = { action: 'closed',
+                     call_record_id: FakeDialer.call_setup_data[call_number]['call_record_id']  
+                    }
+        
+        if(FakeDialer.call_setup_data[call_number]['contact_1']){data['contact_1'] = FakeDialer.call_setup_data[call_number]['contact_1']}
+        if(FakeDialer.call_setup_data[call_number]['contact_2']){data['contact_2'] = FakeDialer.call_setup_data[call_number]['contact_2']}
+        
+        console.log(data);
+        
         $.ajax({
             url:"index.php?entryPoint=AsteriskFakeDialerActions",
-            data: {
-                action: 'closed',
-                call_record_id: FakeDialer.call_setup_data[call_number]['call_record_id'],
-                contact_1: FakeDialer.call_setup_data[call_number]['contact_1'],
-                contact_2: FakeDialer.call_setup_data[call_number]['contact_2']
-            }, 
+            data: data,
             type: "POST",			
-            success: function(call_record_id){
+            success: function(){
                 $('#hangup_'+call_number).removeClass( "ui-state-highlight" );
-        
-            //could take ui-state off dialed
             },
             error: function (jqXHR, textStatus, thrownError){
                 console.log(jqXHR.status);
@@ -117,10 +121,36 @@ var FakeDialer = {
             }
         });
     },
+    
+    action_create_contacts : function(){
+        var contacts = {}
+                        
+            $.ajax({
+                url:"index.php?entryPoint=AsteriskFakeDialerActions",
+                async:false,
+                data: {
+                    action: 'create_contacts',
+                    contacts: $('#radio :radio:checked').val()
+                }, 
+                type: "POST",			
+                success: function(transport){
+                    contacts = $.parseJSON(transport);          
+                },
+                error: function (jqXHR, textStatus, thrownError){
+                    console.log(jqXHR.status);
+                    console.log(textStatus);
+                    console.log(thrownError);
+                }
+            }); 
+            
+        return contacts;
+    },
     extension_input_dialog : function(){
+        $( "#radio" ).buttonset();
+        
         $( "#extension-input" ).dialog({
             autoOpen: false,
-            height: 200,
+            height: 400,
             width: 400,
             modal: true,
             buttons: {
@@ -135,14 +165,14 @@ var FakeDialer = {
                             $( this )
                             .addClass( "ui-state-highlight" )
                                 
-                            FakeDialer.action( $(this).attr('id'), $('#extension').val() )      
+                            FakeDialer.action( $(this).attr('id'), $('#extension').val(), $('#phone_number').val()  )      
                                 
                             if($(this).attr('id').indexOf("closed") >= 0){
                                 $(this).parent('div').hide();
                                     
                             }
                         }
-                    });
+                    });                     
                     FakeDialer.call_counter++;
                     $( this ).dialog( "close" );
                 },

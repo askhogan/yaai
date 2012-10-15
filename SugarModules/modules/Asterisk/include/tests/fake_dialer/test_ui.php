@@ -24,8 +24,8 @@
             <img src="/custom/modules/Asterisk/include/tests/fake_dialer/call_green.jpg" alt="Call" />
         </div>
  
-        <div id="dial" class="droppable ui-widget-header">
-            <p>Dial</p>
+        <div id="ringing" class="droppable ui-widget-header">
+            <p>Ringing</p>
         </div>
 
         <div id="connected" class="droppable ui-widget-header">
@@ -47,6 +47,15 @@
     <fieldset>
         <label for="extension">Extension</label>
         <input type="text" name="extension" id="extension" class="text ui-widget-content ui-corner-all" />
+        <label for="phone_number">Phone#</label>
+        <input type="text" name="phone_number" id="phone_number" class="text ui-widget-content ui-corner-all" />
+    
+    <div id="radio" style="text-align:center;">
+        <p>Matching Contacts</p>
+        <input type="radio" id="radio1" name="radio" value="0" /><label for="radio1">0</label>
+        <input type="radio" id="radio2" name="radio" value="1" checked="checked" /><label for="radio2">1</label>
+        <input type="radio" id="radio3" name="radio" value="2" /><label for="radio3">>=2</label>
+    </div>
     </fieldset>
     </form>
 </div>

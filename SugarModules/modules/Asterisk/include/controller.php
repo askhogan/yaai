@@ -2,30 +2,26 @@
 
 /* * *
  * Author: Blake Robertson
+ * 
+ * Author: Patrick Hogan
  *
  * Controller class for various AJAX things such as saving the UI state and saving the call details. 
  *
- * TODO: callListener and createCall should be refactored into this php file and then called by specifying an appropriate action for them.
+ * TODO: createCall should be refactored into this php file and then called by specifying an appropriate action for them.
  */
 
 
 
 if (!defined('sugarEntry') || !sugarEntry)
     die('Not A Valid Entry Point');
+global $sugar_config;
+global $current_user;
 
 require_once('include/utils.php');
 require_once('include/export_utils.php');
-
-global $sugar_config;
-global $locale;
-global $current_user;
-
-
-if (!defined('sugarEntry'))
-    define('sugarEntry', true);
-
 require_once('modules/Calls/Call.php');
 require_once('modules/Users/User.php');
+require_once("custom/modules/Asterisk/language/" . $sugar_config['default_language'] . ".lang.php");
 
 // These variables in a perfect world would be asterisk configuration
 $INBOUND_CALL_ABBR = $sugar_config['asterisk_call_subject_inbound_abbr']; //"IBC"; // Inbound calls will be prefixed with this in Call Record
@@ -97,11 +93,6 @@ case "memoSave" :
     break;
    
 case "updateUIState" :
-    $current_language = $_SESSION['authenticated_user_language'];
-    if (empty($current_language)) {
-        $current_language = $sugar_config['default_language'];
-    }
-    require("custom/modules/Asterisk/language/" . $current_language . ".lang.php");
     $cUser = new User();
     $cUser->retrieve($_SESSION['authenticated_user_id']);
 
@@ -124,29 +115,19 @@ case "updateUIState" :
     break;
     
 case "setContactId" :
-
-    $current_language = $_SESSION['authenticated_user_language'];
-    if (empty($current_language)) {
-        $current_language = $sugar_config['default_language'];
-    }
-    require("custom/modules/Asterisk/language/" . $current_language . ".lang.php");
-    $cUser = new User();
-    $cUser->retrieve($_SESSION['authenticated_user_id']);
-
-    // query log
+    
+    //wrapped the entire action to require a call_record - if this is not being passed then there is no point for this action - PJH
+    if ($_REQUEST['call_record']) {
     // Very basic santization
     $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['contact_id']);   // mysql_real_escape_string($_REQUEST['ui_state']);
     $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['call_record']); // mysql_real_escape_string($_REQUEST['call_record']);
-    $asteriskID = preg_replace('/-/', '.', $_REQUEST['id']);
     // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
-    if (isset($_REQUEST['call_record'])) {
+    
         $query = "update asterisk_log set contact_id=\"$contactId\" where call_record_id=\"$callRecord\"";
-    } else {
-        $query = "update asterisk_log set contact_id=\"$contactId\" where asterisk_id=\"$asteriskID\"";
-    }
+   
 
-    $resultSet = $cUser->db->query($query, false);
-    if ($cUser->db->checkError()) {
+    $resultSet = $GLOBALS['current_user']->db->query($query, false);
+    if ($GLOBALS['current_user']->db->checkError()) {
         trigger_error("Update setContactId-Query failed: $query");
     }
 
@@ -164,6 +145,7 @@ case "setContactId" :
     $focus->parent_id = $contactBean->account_id;
     $focus->parent_type = "Accounts";
     $focus->save();
+    }
     break;
     
 case "call" :
@@ -361,22 +343,23 @@ function build_item_list($result_set, $current_user, $mod_strings) {
     $response = array();
     while ($row = $current_user->db->fetchByAssoc($result_set)) {
 
-        $state = get_call_state($row);
+        $state = get_call_state($row, $mod_strings);
         $phone_number = get_callerid($row);
-        $call_direction = get_call_direction($row);
-
+        $call_direction = get_call_direction($row, $mod_strings);
+        $contacts = get_contact_information($phone_number, $row, $current_user);
+        
         $call = array(
             'id' => $row['id'],
             'asterisk_id' => $row['asterisk_id'],
             'state' => $state,
-            'is_hangup' => get_call_state($row) == $mod_strings['HANGUP'],
+            'is_hangup' => $state == $mod_strings['HANGUP'],
             'call_record_id' => $row['call_record_id'],
             'phone_number' => $phone_number,
             'asterisk_name' => $row['callerName'],
             'asterisk_id' => $row['asterisk_id'],
             'timestampCall' => $row['timestampCall'],
-            'title' => get_title($contact_info['full_name'], $phone_number, $state),
-            'contacts' => get_contact_information($phone_number, $row, $current_user),
+            'title' => get_title($contacts, $phone_number, $state, $mod_strings),
+            'contacts' => $contacts,
             'call_type' => $call_direction['call_type'],
             'direction' => $call_direction['direction'],
             'duration' => get_duration($row),
@@ -396,7 +379,7 @@ function build_item_list($result_set, $current_user, $mod_strings) {
  *
  * @return string                     state of call
  */
-function get_call_state($row) {
+function get_call_state($row, $mod_strings) {
     $state = isset($mod_strings[strtoupper($row['callstate'])]) ? $mod_strings[strtoupper($row['callstate'])] : $row['callstate'];
     $state = "'" . $state . "'";
 
@@ -449,16 +432,16 @@ function get_call_prefix($row) {
  *
  * @return array               Returns the whole item array
  */
-function get_call_direction($row) {
+function get_call_direction($row, $mod_strings) {
     $result = array();
 
     if ($row['direction'] == 'I') {
-        $result['call_type'] = "Incoming Call";
+        $result['call_type'] = $mod_strings['ASTERISKLBL_COMING_IN'];
         $result['direction'] = "Inbound";
     }
 
     if ($row['direction'] == 'O') {
-        $result['call_type'] = "Outgoing Call";
+        $result['call_type'] = $mod_strings['ASTERISKLBL_GOING_OUT'];
         $result['direction'] = "Outbound";
     }
 
@@ -496,10 +479,6 @@ function get_duration($row) {
 
 function get_contact_information($phone_number, $row, $current_user) {
     $innerResultSet = fetch_contacts_associated_to_phone_number($phone_number, $row, $current_user);
-
-    if ($innerResultSet->num_rows == 1) {
-        update_contact_id_when_one_contact($current_user, $row);
-    }
     
     $contacts = get_contacts($innerResultSet, $current_user, $row);
  
@@ -535,13 +514,6 @@ function get_contacts($innerResultSet, $current_user, $row) {
     
     
     return $contacts;
-}
-
-function update_contact_id_when_one_contact($current_user, $row) {
-    $tempContactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contactRow['contact_id']);
-    $tempCallRecordId = preg_replace('/[^a-z0-9\-\. ]/i', '', $row['call_record_id']);
-    $insertQuery = "UPDATE asterisk_log SET contact_id='$tempContactId' WHERE call_record_id='$tempCallRecordId'";
-    $current_user->db->query($insertQuery, false);
 }
 
 function fetch_contacts_associated_to_phone_number($phoneToFind, $row, $current_user) {
@@ -663,15 +635,24 @@ function opencnam_fetch($phoneNumber) {
  * @param string $phoneNumber         10 digit US telephone number
  * 
  * @return string                     title
- *
+ * 
+ * title changes based on whether there are 1) multiple matches found 2) single match found 3) no matches found
  */
-function get_title($full_name, $phone_number, $state) {
-    if (strlen($full_name) == 0) {
-        $title = $phone_number;
-    } else {
-        $title = $full_name;
+function get_title($contacts, $phone_number, $state, $mod_strings) {
+    
+    switch(count($contacts)){      
+        case 0:
+            $title = $phone_number;
+        break;
+    
+        case 1:
+            $title = $contacts[0]['contact_full_name'];
+        break;
+ 
+        default:
+            $title = $mod_strings["ASTERISKLBL_MULTIPLE_MATCHES"];
+        break;
     }
-
     $title = $title . " - " . $state;
 
     return $title;

@@ -1,0 +1,95 @@
+<div id="{{callbox_id}}" class="callbox">
+    <div class="callboxhead">
+        <div class="callboxtitle">{{title}}</div>
+        <div class="callboxoptions">
+            <a href="#" class="callbox_close">X</a>
+        </div>
+        <br clear="all">
+    </div>
+    <div class="callboxcontent">  
+        <div class="asterisk_info" id="{{asterisk_id}}">
+
+            <h4 class="call_type">{{call_type}}</h4>
+
+            <div class="tabForm">
+                <table class="asterisk_data">
+                    <tr>
+                        <td colspan="2" class="listViewThS1 asterisk_state">{{asterisk_state}}</td>
+                    </tr>
+                    
+                    <tr class="multiplematchingcontacts">
+                        <td colspan="2">
+                            <b>Select Contact:</b>
+                            <br>
+                                {{#each contacts}}
+                                  <p id="contact_{{contact_id}}">
+                                    <input type="radio" name="contactSelect"  value={{contact_id}}>
+                                <a class="multiplecontacts" title="{{contact_full_name}}" href="index.php?module=Contacts&action=DetailView&record={{contact_id}}">{{contact_full_name}}</a>
+                                </p>
+                                {{/each}}
+                            <br>
+                        </td>
+                    </tr>
+                    
+                    <tr class="singlematchingcontact">
+                        <td>Name:</td>
+                        <td><a href="index.php?module=Contacts&action=DetailView&record={{contact_id}}"><span class="call_contacts">{{full_name}}</span></a>&nbsp;
+                            <button class="unrelate_contact"></button>
+                        </td>
+                    </tr>
+                    <tr class="singlematchingcontact">
+                        <td>Company:</td>
+                        <td><a href="index.php?module=Accounts&action=DetailView&record={{company_id}}">{{company}}</a></td>
+                    </tr>
+                    
+                    <tr class="nomatchingcontact">
+                        <td colspan="2">
+                            <button class="create_new_contact">Create</button>
+                            <button class="relate_contact">Relate To</button>   
+                        </td>
+                    </tr>
+                    
+                    <tr class="caller_id_box">
+                        <td class="caller_id_label">Caller ID:</td>
+                        <td class="caller_id">{{caller_id}}</td>
+                    </tr>
+                    <tr class="phone_number_box">
+                        <td class="phone_number_label">Phone Number:</td>
+                        <td class="phone_number">{{phone_number}}</td>
+                    </tr>
+
+                    <tr class="call_duration_box">
+                        <td class="call_duration_label">Duration:</td>
+                        <td>
+                            <span class="call_duration">{{duration}}</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="callboxinput">
+        <textarea id="{{callboxtextarea}}" class="callboxtextarea callboxtextareaselected" onkeydown="javascript:return YAAI.checkCallBoxInputKey(event,this,'{{asterisk_id}}');">
+        </textarea>
+        <div class="callboxbuttons">
+            <table width="100%">
+                <tbody>
+                    <tr>
+                        <td valign="bottom">
+                            <span class="asterisk_save_status"></span>
+                            <img id="{{transfer_image}}" src="custom/modules/Asterisk/include/images/call_transfer-blue.png" height="19" title="Transfer Call" onclick="javascript:YAAI.showTransferMenu('{{asterisk_id}}');">
+                        </td>
+                        <td align="right">
+                            <input type="button" name="saveMemo" value="Save" onclick="javascript:YAAI.saveMemo('{{asterisk_id}}');">
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<form name="{{call_record_id}}">
+    <input type='hidden' name="relateContactId"/>
+    <input type='hidden' name="relateContactName"/>
+</form>

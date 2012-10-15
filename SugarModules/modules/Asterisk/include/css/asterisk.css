@@ -53,20 +53,20 @@ td.asterisk_state		{	font-weight: bold; text-align: center;}
     background: url(custom/modules/Asterisk/include/images/dialpad-grid.png) no-repeat 0 2px;
 }
 
-#call_duration {
+.call_duration {
     width: 20%;
 }
 
-#asterisk_info {
+.asterisk_info {
     margin-top: -18px; 
 }
 
-#asterisk_data {
+.asterisk_data {
     padding-bottom:0px;
     margin-bottom:0px;
 }
 
-#caller_id_box {
+.caller_id_box {
     display:none;
 }
 .callbox {
@@ -165,4 +165,20 @@ td.asterisk_state		{	font-weight: bold; text-align: center;}
 
 .callboxtitle {
 	float: left;
+}
+
+.multiplematchingcontacts, .singlematchingcontact, .nomatchingcontact {
+        display: none;
+}
+
+.asterisk_save_status {
+    width:150px;
+}
+
+.callboxinput {
+    display: block;
+}
+
+.callbox_close {
+    font-size:110%;
 }
