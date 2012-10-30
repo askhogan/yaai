@@ -33,19 +33,19 @@ switch ($_REQUEST['action']) {
         }
         break;
     case "updateUIState" :
-        updateUIState();
+        updateUIState($_REQUEST['ui_state'], $_REQUEST['call_record'], $_REQUEST['id']);
         break;
     case "setContactID" :
-        setContactID();
+        setContactID($_REQUEST['call_record'], $_REQUEST['contact_id']);
         break;
     case "call" :
         callCreate();
         break;
     case "transfer" :
-        transferCall();
+        transferCall($_REQUEST["extension"], $_REQUEST['call_record']);
         break;
     case "block" :
-        blockNumber();
+        blockNumber($_REQUEST['number'], $_REQUEST['description']);
         break;
     case "get_calls" :
         getCalls($mod_strings);
@@ -78,17 +78,17 @@ function memoSave($call_record_id, $sugar_user_id, $phone_number, $description, 
     }
 }
 
-function updateUIState() {
+function updateUIState($ui_state, $call_record, $asterisk_id) {
     $cUser = new User();
     $cUser->retrieve($_SESSION['authenticated_user_id']);
 
     // query log
     // Very basic santization
-    $uiState = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['ui_state']); //  mysql_real_escape_string($_REQUEST['ui_state']);
-    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['call_record']); //mysql_real_escape_string($_REQUEST['call_record']);
-    $asteriskID = preg_replace('/-/', '.', $_REQUEST['id']);
+    $uiState = preg_replace('/[^a-z0-9\-\. ]/i', '', $ui_state); //  mysql_real_escape_string($_REQUEST['ui_state']);
+    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $call_record); //mysql_real_escape_string($_REQUEST['call_record']);
+    $asteriskID = preg_replace('/-/', '.', $asterisk_id);
     // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
-    if (isset($_REQUEST['call_record'])) {
+    if (isset($call_record)) {
         $query = "update asterisk_log set uistate=\"$uiState\" where call_record_id=\"$callRecord\"";
     } else {
         $query = "update asterisk_log set uistate=\"$uiState\" where asterisk_id=\"$asteriskID\"";
@@ -100,12 +100,12 @@ function updateUIState() {
     }
 }
 
-function setContactID() {
+function setContactID($call_record, $call_record) {
     //wrapped the entire action to require a call_record - if this is not being passed then there is no point for this action - PJH
-    if ($_REQUEST['call_record']) {
+    if ($call_record) {
         // Very basic santization
-        $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['contact_id']);   // mysql_real_escape_string($_REQUEST['ui_state']);
-        $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['call_record']); // mysql_real_escape_string($_REQUEST['call_record']);
+        $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contact_id);   // mysql_real_escape_string($_REQUEST['ui_state']);
+        $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $call_record); // mysql_real_escape_string($_REQUEST['call_record']);
         // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
 
         $query = "update asterisk_log set contact_id=\"$contactId\" where call_record_id=\"$callRecord\"";
@@ -173,13 +173,13 @@ function callCreate() {
      */
 }
 
-function transferCall() {
-    $exten = preg_replace('/\D/', '', $_REQUEST["extension"]); // removes anything that isn't a digit.
+function transferCall($extension, $call_record) {
+    $exten = preg_replace('/\D/', '', $extension); // removes anything that isn't a digit.
     if (empty($exten)) {
         echo "ERROR: Invalid extension";
     }
 
-    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST["call_record"]);
+    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $call_record);
     $query = "Select remote_channel from asterisk_log where call_record_id='$callRecord'";
 
     $resultSet = $GLOBALS['current_user']->db->query($query, false);
@@ -205,9 +205,9 @@ function transferCall() {
     // At this point we should also update the channel in database
 }
 
-function blockNumber() {
-    $e164_number = formatPhoneNumberToE164($_REQUEST['number']);
-    $description = trim($_REQUEST['description']);
+function blockNumber($number, $description) {
+    $e164_number = formatPhoneNumberToE164($number);
+    $description = trim($description);
     $cmd = "ACTION: DBPut\r\nFamily: blacklist\r\nKey: {$e164_number}\r\nValue: {$description}\r\n\r\n\r\n\r\n";
     SendAMICommand($cmd);
 }
