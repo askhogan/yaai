@@ -42,9 +42,10 @@ var FakeDialer = {
             type: "POST",			
             success: function(transport){      
                 var call_data = $.parseJSON(transport);
+                console.log(phone_number);
                 //create contacts
                 if($('#radio :radio:checked').val() >= 1){
-                    var contacts = FakeDialer.action_create_contacts();
+                    var contacts = FakeDialer.action_create_contacts(phone_number);
                     if(contacts['contact_1']){call_data['contact_1'] = contacts['contact_1']}
                     if(contacts['contact_2']){call_data['contact_2'] = contacts['contact_2']}
                 }
@@ -122,7 +123,7 @@ var FakeDialer = {
         });
     },
     
-    action_create_contacts : function(){
+    action_create_contacts : function(phone_number){
         var contacts = {}
                         
             $.ajax({
@@ -130,7 +131,8 @@ var FakeDialer = {
                 async:false,
                 data: {
                     action: 'create_contacts',
-                    contacts: $('#radio :radio:checked').val()
+                    contacts: $('#radio :radio:checked').val(),
+                    phone_number: phone_number
                 }, 
                 type: "POST",			
                 success: function(transport){

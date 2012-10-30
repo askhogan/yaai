@@ -47,20 +47,24 @@ class AsteriskJS {
 
     function echoJavaScript() {
         // asterisk hack: include ajax callbacks in every sugar page except ajax requests:
-        if ((!isset($_REQUEST['sugar_body_only']) || $_REQUEST['sugar_body_only'] != true) && $_REQUEST['action'] != 'modulelistmenu' && $_REQUEST['action'] != 'Popup' && empty($_REQUEST['to_pdf']) && (!empty($_REQUEST['module']) && $_REQUEST['module'] != 'ModuleBuilder') && empty($_REQUEST['to_csv'])) {
+        if ((!isset($_REQUEST['sugar_body_only']) || $_REQUEST['sugar_body_only'] != true) && $_REQUEST['action'] != 'modulelistmenu' && $_REQUEST['action'] != 'Popup' && empty($_REQUEST['to_pdf']) && (!empty($_REQUEST['module']) && $_REQUEST['module'] != 'ModuleBuilder') && empty($_REQUEST['to_csv']) && $_REQUEST['action'] != 'Login') {
 
-            $pollRate = !empty($GLOBALS['sugar_config']['asterisk_listener_poll_rate']) ? $GLOBALS['sugar_config']['asterisk_listener_poll_rate'] : "5000";
-            $userExt = !empty($GLOBALS['current_user']->asterisk_ext_c) ? $GLOBALS['current_user']->asterisk_ext_c : "Not Configured!";
-
+            $poll_rate = !empty($GLOBALS['sugar_config']['asterisk_listener_poll_rate']) ? $GLOBALS['sugar_config']['asterisk_listener_poll_rate'] : "5000";
+            $user_extension = !empty($GLOBALS['current_user']->asterisk_ext_c) ? $GLOBALS['current_user']->asterisk_ext_c : "Not Configured!";
+            $current_user_id = $GLOBALS['current_user']->id;
+            
             //JS Global Variables
-            echo '<script type="text/javascript">AST_PollRate = ' . $pollRate . ';</script>';
-            echo '<script> AST_UserExtention = ' . $userExt . ';</script>';
+            echo '<script type="text/javascript">window.yaai_poll_rate = ' . $poll_rate . ';</script>';
+            echo '<script type="text/javascript">window.yaai_user_extension = ' . $user_extension . ';</script>';
+            echo '<script type="text/javascript">window.yaai_current_user_id = ' . $current_user_id . ';</script>';
             
             //JS Third-Party Libraries
 
-            echo '<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>';
-            echo '<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/jquery-ui.js" type="text/javascript"></script>';
-            echo '<script type="text/javascript" src="https://github.com/downloads/wycats/handlebars.js/handlebars-1.0.rc.1.js"></script>';
+            //echo '<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>';
+            //echo '<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/jquery-ui.js" type="text/javascript"></script>';
+            echo '<script src="https://github.com/downloads/wycats/handlebars.js/handlebars-1.0.rc.1.js"></script>';
+            echo '<script src="custom/modules/Asterisk/include/javascript/jquery.fancybox.js" type="text/javascript" ></script>';
+            echo '<script src="custom/modules/Asterisk/include/javascript/jquery.dropdown.js" type="text/javascript" ></script>';
             
             //JS YAAI
             
@@ -71,6 +75,7 @@ class AsteriskJS {
             //CSS Third-Party Libraries
             
             echo '<link rel="stylesheet" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/themes/redmond/jquery-ui.css" />';
+            echo '<link rel="stylesheet" type="text/css" href="custom/modules/Asterisk/include/css/jquery.fancybox.css" media="screen" />';
             
             //CSS YAAI
             

@@ -37,11 +37,17 @@ function action_ringing() {
     $time = get_current_server_time();
     $asterisk_id = get_random_asterisk_id();
     $phone_number = $_REQUEST['phone_number'];
+    $GLOBALS['log']->fatal($phone_number);
 
     $GLOBALS['current_user']->db->query(
             "INSERT INTO asterisk_log (call_record_id, asterisk_id, callstate, callerID, channel, remote_channel, timestampCall, direction) 
             VALUES ('{$new_id}', '{$asterisk_id}', 'Ringing', '{$phone_number}', '{$extension}', 'SIP/flowroute-00000023', FROM_UNIXTIME({$time}), 'I' )"
     );
+            
+    $GLOBALS['current_user']->db->query(
+            "INSERT INTO calls (id, direction, status) 
+             VALUES ('{$new_id}', '{$direction}', 'Planned')"
+            );
     
     $call_setup_data = array();
     $call_setup_data['call_record_id'] = $new_id;
@@ -71,33 +77,34 @@ function action_closed() {
 }
 
 function action_create_contacts() {
-    if ($_REQUEST['contacts'] == 1 || $_REQUEST['contacts'] == 2) {
+    if (count($_REQUEST['contacts']) == 1 || count($_REQUEST['contacts']) == 2) {
+        $GLOBALS['log']->fatal('start creation of contacts');
+        $phone_number = $_REQUEST['phone_number'];
+        $GLOBALS['log']->fatal($phone_number);
 
-         $GLOBALS['log']->fatal('start creation of contacts');
         $results = $GLOBALS['current_user']->db->query("SELECT UUID() AS newid");
         $result = $GLOBALS['current_user']->db->fetchByAssoc($results);
         $new_id_jon = $result["newid"];
         $insert = $GLOBALS['current_user']->db->query("
             INSERT INTO contacts (id, date_entered, date_modified, modified_user_id, first_name, last_name, phone_mobile) 
-            VALUES ('{$new_id_jon}', NOW(), NOW(), 1,  'Jon', 'Doe', '+11111111121')");
+            VALUES ('{$new_id_jon}', NOW(), NOW(), 1,  'Jon', 'Doe', '{$phone_number}')");
 
         $contact_ids = array(
             'contact_1' => $new_id_jon
         );
 
-        if ($_REQUEST['contacts'] == 2) {
+        if (count($_REQUEST['contacts']) == 2) {
             $results = $GLOBALS['current_user']->db->query("SELECT UUID() AS newid");
             $result = $GLOBALS['current_user']->db->fetchByAssoc($results);
             $new_id_jane = $result["newid"];
 
             $insert = $GLOBALS['current_user']->db->query("
             INSERT INTO contacts (id, date_entered, date_modified, modified_user_id, first_name, last_name, phone_mobile) 
-            VALUES ('{$new_id_jane}', NOW(), NOW(), 1,  'Jane', 'Doe', '+11111111121')");
+            VALUES ('{$new_id_jane}', NOW(), NOW(), 1,  'Jane', 'Doe', '{$phone_number}')");
 
             $contact_ids['contact_2'] = $new_id_jane;
         }
-
-        $GLOBALS['log']->fatal($contact_ids);
+        
         return $contact_ids;
     }
 }

@@ -14,85 +14,71 @@
 
 if (!defined('sugarEntry') || !sugarEntry)
     die('Not A Valid Entry Point');
-global $sugar_config;
-global $current_user;
 
 require_once('include/utils.php');
 require_once('include/export_utils.php');
 require_once('modules/Calls/Call.php');
 require_once('modules/Users/User.php');
-require_once("custom/modules/Asterisk/language/" . $sugar_config['default_language'] . ".lang.php");
+//sets $mod_strings variable
+require_once("custom/modules/Asterisk/language/" . $GLOBALS['sugar_config']['default_language'] . ".lang.php");
 
-// These variables in a perfect world would be asterisk configuration
-$INBOUND_CALL_ABBR = $sugar_config['asterisk_call_subject_inbound_abbr']; //"IBC"; // Inbound calls will be prefixed with this in Call Record
-$OUTBOUND_CALL_ABBR = $sugar_config['asterisk_call_subject_outbound_abbr']; //"OBC";
-$MORE_INDICATOR = "..."; // When memo notes are longer then max length it displays this at the end to indicate the user should open the record for the rest of the notes.
-$MAX_CALL_SUBJECT_LENGTH = $sugar_config['asterisk_call_subject_max_length'];
+//ACTIONS
 
-
-switch ($_REQUEST['action']){
-
-
-case "memoSave" : 
-
-    /**
-      // DEBUG Stuff
-      echo 'description:'. $_POST["description"]; //assuming you defined the column "name" in vardefs.php
-      if( array_key_exists("message",$_POST) )
-      echo ', message:'. $_POST["message"]; //assuming you defined the column "name" in vardefs.php
-      echo ', call record id:'. $_POST["call_record"]; //assuming you defined the column "name" in vardefs.php
-     * */
-    // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
-    if (isset($_POST["call_record"])) {
-        $callRecord = $_POST["call_record"];
-    } else {
-        $asteriskID = preg_replace('/-/', '.', $_POST['id']);
-        $query = " SELECT call_record_id FROM asterisk_log WHERE asterisk_id=\"$asteriskID\"";
-        $resultSet = $current_user->db->query($query, false);
-        if ($current_user->db->checkError()) {
-            trigger_error("RetrieveCallRecord-Query failed: $query");
+switch ($_REQUEST['action']) {
+    case "memoSave" :
+        
+        $GLOBALS['log']->fatal($_REQUEST['phone_number']);
+        if ($_REQUEST['call_record']) {
+            memoSave($_REQUEST['call_record'], $_REQUEST['sugar_user_id'], $_REQUEST['phone_number'], $_REQUEST['description'], $_REQUEST['contact_id']);
         }
-        while ($row = $current_user->db->fetchByAssoc($resultSet)) {
-            $callRecord = $row['call_record_id'];
+        break;
+    case "updateUIState" :
+        updateUIState();
+        break;
+    case "setContactID" :
+        setContactID();
+        break;
+    case "call" :
+        callCreate();
+        break;
+    case "transfer" :
+        transferCall();
+        break;
+    case "block" :
+        blockNumber();
+        break;
+    case "get_calls" :
+        getCalls($mod_strings);
+        break;
+    default :
+        echo "undefined action";
+        break;
+}
+
+// ACTION FUNCTIONS
+
+function memoSave($call_record_id, $sugar_user_id, $phone_number, $description, $contact_id) {
+    $GLOBALS['log']->fatal('memoSave' . $phone_number);
+    if ($call_record_id) {
+        $call = new Call();
+
+        if (!empty($contact_id)) {
+            $call->parent_id = $contact_id;
+            $call->parent_type = 'Contacts';
         }
-        //log_entry("Set ID by fetching from db: " . $callRecord, "c:/debug.txt");
+
+
+        $call->retrieve($call_record_id);
+        $call->description = $description;
+        //!$name ? $call->name = getMemoName($call, $direction) : $call->name = $_REQUEST["name"];
+        $GLOBALS['log']->fatal('memoSave' . $phone_number);
+        $call->name = $phone_number;
+        $call->assigned_user_id = $sugar_user_id;
+        $call->save();
     }
+}
 
-    $focus = new Call(); //create your module object wich extends SugarBean
-    $focus->retrieve($_POST["call_record"]); // retrieve a row by its id
-    // TODO there are going to be language issues in this file... replace all strings with modstring equivalents.
-
-    if (array_key_exists("name", $_POST))
-        $focus->name = $_POST["name"];
-
-    $focus->description = $_POST["description"];
-
-    $direction = "Outbound";
-    if (!empty($_POST['direction'])) {
-        $direction = $_POST['direction'];
-    }
-
-    $directionAbbr = $OUTBOUND_CALL_ABBR;
-    if ($direction == "Inbound") {
-        $directionAbbr = $INBOUND_CALL_ABBR;
-    }
-
-    $subject = "$direction Call"; // default subject
-    // Set subject to include part of memo if notes were left.
-    if (strlen($focus->description) > 0) {
-        $subject = $directionAbbr . $focus->description;
-        if (strlen($subject) > $MAX_CALL_SUBJECT_LENGTH) {
-            //$subject = $direction . " Call (w/ notes attached)";
-            $substrLen = $MAX_CALL_SUBJECT_LENGTH - (strlen($directionAbbr) + strlen($MORE_INDICATOR) + 1);
-            $subject = $directionAbbr . substr($focus->description, 0, $substrLen) . $MORE_INDICATOR;
-        }
-    }
-
-    $focus->name = $subject;
-    $focus->save();
-    break;
-   
-case "updateUIState" :
+function updateUIState() {
     $cUser = new User();
     $cUser->retrieve($_SESSION['authenticated_user_id']);
 
@@ -108,49 +94,47 @@ case "updateUIState" :
         $query = "update asterisk_log set uistate=\"$uiState\" where asterisk_id=\"$asteriskID\"";
     }
 
-    $resultSet = $cUser->db->query($query, false);
+    $cUser->db->query($query, false);
     if ($cUser->db->checkError()) {
         trigger_error("Update UIState-Query failed: $query");
     }
-    break;
-    
-case "setContactId" :
-    
+}
+
+function setContactID() {
     //wrapped the entire action to require a call_record - if this is not being passed then there is no point for this action - PJH
     if ($_REQUEST['call_record']) {
-    // Very basic santization
-    $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['contact_id']);   // mysql_real_escape_string($_REQUEST['ui_state']);
-    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['call_record']); // mysql_real_escape_string($_REQUEST['call_record']);
-    // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
-    
+        // Very basic santization
+        $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['contact_id']);   // mysql_real_escape_string($_REQUEST['ui_state']);
+        $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST['call_record']); // mysql_real_escape_string($_REQUEST['call_record']);
+        // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
+
         $query = "update asterisk_log set contact_id=\"$contactId\" where call_record_id=\"$callRecord\"";
-   
 
-    $resultSet = $GLOBALS['current_user']->db->query($query, false);
-    if ($GLOBALS['current_user']->db->checkError()) {
-        trigger_error("Update setContactId-Query failed: $query");
-    }
 
-    // Adds the new relationship!  (This must be done here in case the call has already been hungup as that's when asteriskLogger sets relations)
-    $focus = new Call();
-    $focus->retrieve($callRecord);
-    $focus->load_relationship('contacts');
-    // Remove any contacts already associated with call (if there are any)
-    foreach ($focus->contacts->getBeans() as $contact) {
-        $focus->contacts->delete($callRecord, $contact->id);
-    }
-    $focus->contacts->add($contactId); // Add the new one!
-    $contactBean = new Contact();
-    $contactBean->retrieve($contactId);
-    $focus->parent_id = $contactBean->account_id;
-    $focus->parent_type = "Accounts";
-    $focus->save();
-    }
-    break;
-    
-case "call" :
+        $GLOBALS['current_user']->db->query($query, false);
+        if ($GLOBALS['current_user']->db->checkError()) {
+            trigger_error("Update setContactId-Query failed: $query");
+        }
 
-// TODO: For some reason this code isn't working... I think it's getting the extension.
+        // Adds the new relationship!  (This must be done here in case the call has already been hungup as that's when asteriskLogger sets relations)
+        $focus = new Call();
+        $focus->retrieve($callRecord);
+        $focus->load_relationship('contacts');
+        // Remove any contacts already associated with call (if there are any)
+        foreach ($focus->contacts->getBeans() as $contact) {
+            $focus->contacts->delete($callRecord, $contact->id);
+        }
+        $focus->contacts->add($contactId); // Add the new one!
+        $contactBean = new Contact();
+        $contactBean->retrieve($contactId);
+        $focus->parent_id = $contactBean->account_id;
+        $focus->parent_type = "Accounts";
+        $focus->save();
+    }
+}
+
+function callCreate() {
+    // TODO: For some reason this code isn't working... I think it's getting the extension.
 // For the time being, callCreate is still being used.	
 
     /*
@@ -159,17 +143,17 @@ case "call" :
       $extension = $cUser->asterisk_ext_c;
 
       //$extension = $current_user->asterisk_ext_c;
-      $context = $sugar_config['asterisk_context'];
+      $context = $GLOBALS['sugar_config']['asterisk_context'];
 
       // Take the user supplied pattern, we find the part with the #'s (which are the ext)... then we get something like
       // asterisk_dialout_channel == "SIP/###"   --> $matches[1] == SIP/, $matches[2] == "###", $matches[3] is "".
       // asterisk_dialout_channel == "Local/###@sugarsip/n"   --> $matches[1] == Local/, $matches[2] == "###", $matches[3] is "@sugarsip/n".
-      preg_match('/([^#]*)(#+)([^#]*)/',$sugar_config['asterisk_dialout_channel'],$matches);
+      preg_match('/([^#]*)(#+)([^#]*)/',$GLOBALS['sugar_config']['asterisk_dialout_channel'],$matches);
       $channel = $matches[1] . $extension . $matches[3];
 
       //format Phone Number
       $number = $_REQUEST['phoneNr'];
-      $prefix = $sugar_config['asterisk_prefix'];
+      $prefix = $GLOBALS['sugar_config']['asterisk_prefix'];
       $number = str_replace("+", "00", $number);
       $number = str_replace(array("(", ")", " ", "-", "/", "."), "", $number);
       $number = $prefix.$number;
@@ -187,28 +171,28 @@ case "call" :
 
       SendAMICommand($cmd);
      */
+}
 
-case "transfer" :
-
-    $exten = preg_replace('/\D/', '', $_POST["extension"]); // removes anything that isn't a digit.
+function transferCall() {
+    $exten = preg_replace('/\D/', '', $_REQUEST["extension"]); // removes anything that isn't a digit.
     if (empty($exten)) {
         echo "ERROR: Invalid extension";
     }
 
-    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_POST["call_record"]);
+    $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $_REQUEST["call_record"]);
     $query = "Select remote_channel from asterisk_log where call_record_id='$callRecord'";
 
-    $resultSet = $current_user->db->query($query, false);
-    if ($current_user->db->checkError()) {
+    $resultSet = $GLOBALS['current_user']->db->query($query, false);
+    if ($GLOBALS['current_user']->db->checkError()) {
         trigger_error("Find Remote Channel-Query failed: $query");
     }
 
-    while ($row = $current_user->db->fetchByAssoc($resultSet)) {
-        $context = $sugar_config['asterisk_context'];
+    while ($row = $GLOBALS['current_user']->db->fetchByAssoc($resultSet)) {
+        $context = $GLOBALS['sugar_config']['asterisk_context'];
         $cmd = "ACTION: Redirect\r\nChannel: {$row['remote_channel']}\r\nContext: $context\r\nExten: $exten\r\nPriority: 1\r\n\r\n";
         SendAMICommand($cmd);
     }
-    break;
+
 
     // Inbound call trying, THIS WORKED!!!
     // 174-37-247-84*CLI> core show channels concise
@@ -219,16 +203,22 @@ case "transfer" :
     //$cmd ="ACTION: Redirect\r\nChannel: SIP/Flowroute-00000f59\r\nContext: from-internal\r\nExten: 208\r\nPriority: 1\r\n\r\n";
     //SendAMICommand($cmd);
     // At this point we should also update the channel in database
+}
 
-case "get_calls" :
+function blockNumber() {
+    $e164_number = formatPhoneNumberToE164($_REQUEST['number']);
+    $description = trim($_REQUEST['description']);
+    $cmd = "ACTION: DBPut\r\nFamily: blacklist\r\nKey: {$e164_number}\r\nValue: {$description}\r\n\r\n\r\n\r\n";
+    SendAMICommand($cmd);
+}
 
-    $result_set = get_calls($current_user);
-    $response = build_item_list($result_set, $current_user, $mod_strings);
+function getCalls($mod_strings) {
+    $result_set = get_calls();
+    $response = build_item_list($result_set, $GLOBALS['current_user'], $mod_strings);
     // print out json 
     $response_array = array();
     if (count($response) == 0) {
         print json_encode(array("."));
-        
     } else {
         foreach ($response as $call) {
 
@@ -237,27 +227,24 @@ case "get_calls" :
         print json_encode($response_array);
     }
     sugar_cleanup();
-    break;
-    
-    
-default :
-
-    echo "undefined action";
-    break;
-    
 }
 
+// HELPER FUNCTIONS
 
-
-/// Logs in, Sends the AMI Command Payload passed as a parameter, then logs out.
-/// results of the command are "echo"ed and get show up in ajax response for debugging.
+/**
+ * Logs in, Sends the AMI Command Payload passed as a parameter, then logs out.
+ * results of the command are "echo"ed and show up in ajax response for debugging.
+ * 
+ * @param string $response    AMI Command
+ *
+ * @param string $status      
+ *  
+ */
 function SendAMICommand($amiCmd, &$status = true) {
-    global $sugar_config;
-    $server = $sugar_config['asterisk_host'];
-    $port = (int) $sugar_config['asterisk_port'];
-    $Username = "Username: " . $sugar_config['asterisk_user'] . "\r\n";
-    $Secret = "Secret: " . $sugar_config['asterisk_secret'] . "\r\n";
-    $context = $sugar_config['asterisk_context'];
+    $server = $GLOBALS['sugar_config']['asterisk_host'];
+    $port = (int) $GLOBALS['sugar_config']['asterisk_port'];
+    $Username = "Username: " . $GLOBALS['sugar_config']['asterisk_user'] . "\r\n";
+    $Secret = "Secret: " . $GLOBALS['sugar_config']['asterisk_secret'] . "\r\n";
 
     $socket = fsockopen($server, $port, $errno, $errstr, 20);
 
@@ -296,10 +283,24 @@ function SendAMICommand($amiCmd, &$status = true) {
     }
 }
 
+/**
+ * Check if AMI Command Was Successful
+ *
+ * @param object $response    AMI Response
+ *
+ * @return string                  Success resonse
+ */
 function WasAmiCmdSuccessful($response) {
     return preg_match('/.*Success.*/s', $response);
 }
 
+/**
+ * Read the socket response
+ *
+ * @param object $socket    Socket
+ *
+ * @return array                  Array of socket responses
+ */
 function ReadResponse($socket) {
     $retVal = '';
 
@@ -311,7 +312,39 @@ function ReadResponse($socket) {
     return $retVal;
 }
 
-// HELPER FUNCTIONS
+/**
+ * GET the description to save to the memo box
+ *
+ * @param object $socket    Socket
+ *
+ * @return array                  Array of socket responses
+ */
+function getMemoName($call, $direction) {
+
+    //set the proper abbreviation
+    if ($direction == "Outbound") {
+        $directionAbbr = $GLOBALS['sugar_config']['asterisk_call_subject_outbound_abbr'];
+    }
+
+    if ($direction == "Inbound") {
+        $directionAbbr = $GLOBALS['sugar_config']['asterisk_call_subject_inbound_abbr'];
+    }
+
+    //set the description
+    if (strlen($call->description) > 0) {
+        $name = $directionAbbr . $call->description;
+    } else {
+        $name = "$direction Call"; // default subject
+    }
+
+    //check the length of the description
+    if (strlen($name) > $GLOBALS['sugar_config']['asterisk_call_subject_max_length']) {
+        $substrLen = $GLOBALS['sugar_config']['asterisk_call_subject_max_length'] - (strlen($directionAbbr) + strlen("...") + 1);
+        $name = $directionAbbr . substr($call->description, 0, $substrLen) . "...";
+    }
+
+    return $name;
+}
 
 /**
  * GET list of calls from the database
@@ -320,11 +353,11 @@ function ReadResponse($socket) {
  *
  * @return array                  Array of calls from database
  */
-function get_calls($current_user) {
+function get_calls() {
     $last_hour = date('Y-m-d H:i:s', time() - 1 * 60 * 60);
-    $query = " SELECT * FROM asterisk_log WHERE \"$last_hour\" < timestampCall AND (uistate IS NULL OR uistate != \"Closed\") AND (callstate != 'NeedID') AND (channel LIKE 'SIP/{$current_user->asterisk_ext_c}%' OR channel LIKE 'Local%{$current_user->asterisk_ext_c}%')";
-    $result_set = $current_user->db->query($query, false);
-    if ($current_user->db->checkError()) {
+    $query = " SELECT * FROM asterisk_log WHERE \"$last_hour\" < timestampCall AND (uistate IS NULL OR uistate != \"Closed\") AND (callstate != 'NeedID') AND (channel LIKE 'SIP/{$GLOBALS['current_user']->asterisk_ext_c}%' OR channel LIKE 'Local%{$GLOBALS['current_user']->asterisk_ext_c}%')";
+    $result_set = $GLOBALS['current_user']->db->query($query, false);
+    if ($GLOBALS['current_user']->db->checkError()) {
         trigger_error("checkForNewStates-Query failed: $query");
     }
     return $result_set;
@@ -347,29 +380,28 @@ function build_item_list($result_set, $current_user, $mod_strings) {
         $phone_number = get_callerid($row);
         $call_direction = get_call_direction($row, $mod_strings);
         $contacts = get_contact_information($phone_number, $row, $current_user);
-        
+
         $call = array(
             'id' => $row['id'],
             'asterisk_id' => $row['asterisk_id'],
             'state' => $state,
-            'is_hangup' => $state == $mod_strings['HANGUP'],
+            'is_hangup' => $state == $mod_strings['YAAI']['HANGUP'],
             'call_record_id' => $row['call_record_id'],
             'phone_number' => $phone_number,
             'asterisk_name' => $row['callerName'],
-            'asterisk_id' => $row['asterisk_id'],
             'timestampCall' => $row['timestampCall'],
             'title' => get_title($contacts, $phone_number, $state, $mod_strings),
             'contacts' => $contacts,
             'call_type' => $call_direction['call_type'],
             'direction' => $call_direction['direction'],
             'duration' => get_duration($row),
+            'mod_strings' => $mod_strings['YAAI']
         );
 
         $response[] = $call;
     }
-    
+
     return $response;
-    
 }
 
 /**
@@ -436,12 +468,12 @@ function get_call_direction($row, $mod_strings) {
     $result = array();
 
     if ($row['direction'] == 'I') {
-        $result['call_type'] = $mod_strings['ASTERISKLBL_COMING_IN'];
+        $result['call_type'] = $mod_strings['YAAI']['ASTERISKLBL_COMING_IN'];
         $result['direction'] = "Inbound";
     }
 
     if ($row['direction'] == 'O') {
-        $result['call_type'] = $mod_strings['ASTERISKLBL_GOING_OUT'];
+        $result['call_type'] = $mod_strings['YAAI']['ASTERISKLBL_GOING_OUT'];
         $result['direction'] = "Outbound";
     }
 
@@ -455,7 +487,6 @@ function get_call_direction($row, $mod_strings) {
  *
  * @return array               Returns the whole item array
  */
-
 function get_duration($row) {
     if (!empty($row['timestampHangup'])) {
         $to_time = strtotime($row['timestampHangup']);
@@ -476,12 +507,11 @@ function get_duration($row) {
  *
  * @return array               Returns the whole item array
  */
-
 function get_contact_information($phone_number, $row, $current_user) {
     $innerResultSet = fetch_contacts_associated_to_phone_number($phone_number, $row, $current_user);
-    
+
     $contacts = get_contacts($innerResultSet, $current_user, $row);
- 
+
     return $contacts;
 }
 
@@ -496,10 +526,9 @@ function get_contact_information($phone_number, $row, $current_user) {
  *
  * @return array               Returns contacts
  */
-
 function get_contacts($innerResultSet, $current_user, $row) {
     $contacts = array();
-    
+
     while ($contactRow = $current_user->db->fetchByAssoc($innerResultSet)) {
         $contact = array(
             'contact_id' => $contactRow['contact_id'],
@@ -507,12 +536,12 @@ function get_contacts($innerResultSet, $current_user, $row) {
             'company' => $contactRow['account_name'],
             'company_id' => $contactRow['account_id']
         );
-        
+
         $contacts[] = $contact;
     }
-    
-    
-    
+
+
+
     return $contacts;
 }
 
@@ -569,7 +598,6 @@ function fetch_contacts_associated_to_phone_number($phoneToFind, $row, $current_
     }
 }
 
-
 /**
  * GET the opencnam callerid information
  *
@@ -581,7 +609,6 @@ function fetch_contacts_associated_to_phone_number($phoneToFind, $row, $current_
  *
  * @todo implement a number cleaner that always formats input into 10 digits
  */
-
 function get_open_cnam_result($row, $current_user) {
 
     // Check OpenCNAM if we don't already have the Company Name in Sugar.
@@ -639,23 +666,54 @@ function opencnam_fetch($phoneNumber) {
  * title changes based on whether there are 1) multiple matches found 2) single match found 3) no matches found
  */
 function get_title($contacts, $phone_number, $state, $mod_strings) {
-    
-    switch(count($contacts)){      
+
+    switch (count($contacts)) {
         case 0:
             $title = $phone_number;
-        break;
-    
+            break;
+
         case 1:
             $title = $contacts[0]['contact_full_name'];
-        break;
- 
+            break;
+
         default:
             $title = $mod_strings["ASTERISKLBL_MULTIPLE_MATCHES"];
-        break;
+            break;
     }
     $title = $title . " - " . $state;
 
     return $title;
+}
+
+/**
+ * Helper method for turning any number into an e164 number 
+ *
+ * @param string $number    The number you want to convert
+ */
+function formatPhoneNumberToE164($number) {
+
+    // get rid of any non (digit, + character)
+    $phone = preg_replace('/[^0-9+]/', '', $number);
+
+    // validate intl 10
+    if (preg_match('/^\+([2-9][0-9]{9})$/', $phone, $matches)) {
+        return "+{$matches[1]}";
+    }
+
+    // validate US DID
+    if (preg_match('/^\+?1?([2-9][0-9]{9})$/', $phone, $matches)) {
+        return "+1{$matches[1]}";
+    }
+
+    // validate INTL DID
+    if (preg_match('/^\+?([2-9][0-9]{8,14})$/', $phone, $matches)) {
+        return "+{$matches[1]}";
+    }
+
+    // premium US DID
+    if (preg_match('/^\+?1?([2-9]11)$/', $phone, $matches)) {
+        return "+1{$matches[1]}";
+    }
 }
 
 /**
