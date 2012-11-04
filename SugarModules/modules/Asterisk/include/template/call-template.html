@@ -19,7 +19,7 @@
                             <b>{{select_contact_label}}</b>
                             {{#each contacts}}
                             <p class="select_contact" id="contact_{{contact_id}}">
-                                <input type="radio" name="contactSelect"  value={{contact_id}}>
+                                <input type="radio" name="contactSelect"  value={{contact_id}}  />
                                 <a class="multiplecontacts" title="{{contact_full_name}}" href="index.php?module=Contacts&action=DetailView&record={{contact_id}}">{{contact_full_name}}</a>
                             </p>
                             {{/each}}
@@ -36,10 +36,6 @@
                     <tr class="singlematchingcontact">
                         <td>{{company_label}}</td>
                         <td><a class="company" href="index.php?module=Accounts&action=DetailView&record={{company_id}}">{{company}}</a></td>
-                    </tr>
-                    <tr class="nomatchingcontact">
-                        <td colspan="2">
-                        </td>
                     </tr>
                     <tr class="caller_id_box">
                         <td class="caller_id_label">{{caller_id_label}}:</td>
@@ -60,7 +56,7 @@
         </div>
     </div>
     <div class="callboxinput">
-        <textarea class="callboxtextarea callboxtextareaselected">
+        <textarea rows="4" cols="30" class="callboxtextarea callboxtextareaselected">
         </textarea>
         <div class="callboxbuttons">
             <table width="100%">
@@ -83,7 +79,7 @@
     <form>
         <fieldset>
             <label for="block-phone-number">Phone Number</label>
-            <input type="text" name="block-phone-number" class="block-phone-number" class="text ui-widget-content ui-corner-all" disabled="disabled"/>
+            <input type="text" name="block-phone-number" class="block-phone-number text ui-widget-content ui-corner-all" disabled="disabled"/>
             <label for="block-reason">Block Reason:</label>
             <select name="block-reason" class="block-reason">
                 <option>Marketer</option>
@@ -101,7 +97,6 @@
 </div>
 <div id="dropdown-1_{{callbox_id}}" class="dropdown-menu has-tip">
     <ul>
-        <li><a href="#">Create Task</a></li>
-        <li><a href="#">Create Meeting</a></li>
     </ul>
 </div>
+

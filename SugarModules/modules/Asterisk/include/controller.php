@@ -75,6 +75,7 @@ function memoSave($call_record_id, $sugar_user_id, $phone_number, $description, 
         $call->name = $phone_number;
         $call->assigned_user_id = $sugar_user_id;
         $call->save();
+        $GLOBALS['log']->fatal('callid_' . $call->id);
     }
 }
 
@@ -104,8 +105,8 @@ function setContactID($call_record, $call_record) {
     //wrapped the entire action to require a call_record - if this is not being passed then there is no point for this action - PJH
     if ($call_record) {
         // Very basic santization
-        $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contact_id);   // mysql_real_escape_string($_REQUEST['ui_state']);
-        $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $call_record); // mysql_real_escape_string($_REQUEST['call_record']);
+        $contactId = preg_replace('/[^a-z0-9\-\. ]/i', '', $contact_id);  
+        $callRecord = preg_replace('/[^a-z0-9\-\. ]/i', '', $call_record); 
         // Workaround See Discussion here: https://github.com/blak3r/yaai/pull/20
 
         $query = "update asterisk_log set contact_id=\"$contactId\" where call_record_id=\"$callRecord\"";
@@ -354,7 +355,7 @@ function getMemoName($call, $direction) {
  * @return array                  Array of calls from database
  */
 function get_calls() {
-    $last_hour = date('Y-m-d H:i:s', time() - 1 * 60 * 60);
+    $last_hour = date('Y-m-d H:i:s', time() - 1 * 60 * 30);
     $query = " SELECT * FROM asterisk_log WHERE \"$last_hour\" < timestampCall AND (uistate IS NULL OR uistate != \"Closed\") AND (callstate != 'NeedID') AND (channel LIKE 'SIP/{$GLOBALS['current_user']->asterisk_ext_c}%' OR channel LIKE 'Local%{$GLOBALS['current_user']->asterisk_ext_c}%')";
     $result_set = $GLOBALS['current_user']->db->query($query, false);
     if ($GLOBALS['current_user']->db->checkError()) {
@@ -413,7 +414,6 @@ function build_item_list($result_set, $current_user, $mod_strings) {
  */
 function get_call_state($row, $mod_strings) {
     $state = isset($mod_strings[strtoupper($row['callstate'])]) ? $mod_strings[strtoupper($row['callstate'])] : $row['callstate'];
-    $state = "'" . $state . "'";
 
     return $state;
 }

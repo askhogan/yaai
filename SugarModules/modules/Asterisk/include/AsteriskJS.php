@@ -47,9 +47,9 @@ class AsteriskJS {
 
     function echoJavaScript() {
         // asterisk hack: include ajax callbacks in every sugar page except ajax requests:
-        if ((!isset($_REQUEST['sugar_body_only']) || $_REQUEST['sugar_body_only'] != true) && $_REQUEST['action'] != 'modulelistmenu' && $_REQUEST['action'] != 'Popup' && empty($_REQUEST['to_pdf']) && (!empty($_REQUEST['module']) && $_REQUEST['module'] != 'ModuleBuilder') && empty($_REQUEST['to_csv']) && $_REQUEST['action'] != 'Login') {
+        if ((!isset($_REQUEST['sugar_body_only']) || $_REQUEST['sugar_body_only'] != true) && $_REQUEST['action'] != 'modulelistmenu' && $_REQUEST['action'] != 'Popup' && empty($_REQUEST['to_pdf']) && (!empty($_REQUEST['module']) && $_REQUEST['module'] != 'ModuleBuilder') && empty($_REQUEST['to_csv']) && $_REQUEST['action'] != 'Login' && $_REQUEST['module'] != 'Timesheets') {
 
-            $poll_rate = !empty($GLOBALS['sugar_config']['asterisk_listener_poll_rate']) ? $GLOBALS['sugar_config']['asterisk_listener_poll_rate'] : "5000";
+            $poll_rate = !empty($GLOBALS['sugar_config']['asterisk_listener_poll_rate']) ? $GLOBALS['sugar_config']['asterisk_listener_poll_rate'] : "10000";
             $user_extension = !empty($GLOBALS['current_user']->asterisk_ext_c) ? $GLOBALS['current_user']->asterisk_ext_c : "Not Configured!";
             $current_user_id = $GLOBALS['current_user']->id;
             
@@ -62,7 +62,7 @@ class AsteriskJS {
 
             //echo '<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>';
             //echo '<script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/jquery-ui.js" type="text/javascript"></script>';
-            echo '<script src="https://github.com/downloads/wycats/handlebars.js/handlebars-1.0.rc.1.js"></script>';
+            echo '<script src="http://cloud.github.com/downloads/wycats/handlebars.js/handlebars.runtime-1.0.rc.1.js"></script>';
             echo '<script src="custom/modules/Asterisk/include/javascript/jquery.fancybox.js" type="text/javascript" ></script>';
             echo '<script src="custom/modules/Asterisk/include/javascript/jquery.dropdown.js" type="text/javascript" ></script>';
             
@@ -70,26 +70,19 @@ class AsteriskJS {
             
             echo '<script type="text/javascript" src="custom/modules/Asterisk/include/javascript/callPopups.js"></script>';
             echo '<script type="text/javascript" src="custom/modules/Asterisk/include/javascript/dialout.js"></script>';
-            echo "<script id='asterisk-template' type='text/x-handlebars-template'>{$this->get_handlebars_template()}</script>";
+            echo '<script src="custom/modules/Asterisk/include/template/call-template.tmpl"></script>';
             
-            //CSS Third-Party Libraries
-            
+            //CSS Third-Party Libraries        
             echo '<link rel="stylesheet" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.16/themes/redmond/jquery-ui.css" />';
             echo '<link rel="stylesheet" type="text/css" href="custom/modules/Asterisk/include/css/jquery.fancybox.css" media="screen" />';
             
             //CSS YAAI
             
-            echo '<link rel="stylesheet" type="text/css" media="all" href="custom/modules/Asterisk/include/css/asterisk.css">';
+            echo '<link rel="stylesheet" type="text/css" media="all" href="custom/modules/Asterisk/include/css/asterisk.css" />';
             echo '<!--[if lte IE 7]>';
             echo '<link type="text/css" rel="stylesheet" media="all" href="custom/modules/Asterisk/include/css/screen_ie.css" />';
             echo '<![endif]-->';
         }
-    }
-
-    private function get_handlebars_template() {
-        $handlebars_template = file_get_contents($GLOBALS['sugar_config']['site_url'] . '/custom/modules/Asterisk/include/template/call-template.html');
-        
-        return $handlebars_template;
     }
 
 }

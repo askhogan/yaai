@@ -332,3 +332,7 @@ td.asterisk_state		{	font-weight: bold; text-align: center;}
 .block-phone-number {
     display: block;
 }
+
+.callbox_action {
+    display: none;
+}
