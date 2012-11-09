@@ -70,13 +70,16 @@ $config_meta['asterisk_opencnam_username'] = array('default'=> '', 'section' => 
 $config_meta['asterisk_opencnam_apikey'] = array('default' => '', 'section'=>'Misc');
 $config_meta['asterisk_opencnam_retries'] = array('default'=> '4', 'section'=>'Misc');
 $config_meta['asterisk_gravatar_enabled'] = array('default' => 'false','section'=>'Misc') ;
-$config_meta['asterisk_short_call_status'] = array('default' => "Missed",'section'=>'Misc');
+$config_meta['asterisk_short_call_status'] = array('default' => "Held",'section'=>'Misc');
 $config_meta['asterisk_hide_call_popups_after_mins'] = array('default' => '60','section'=>'Misc');
 
 $config_meta['asterisk_log_file'] = array('default' => '', 'section'=>'Logging');
 
+$config_meta['asterisk_fop_url'] = array('default' => '', 'section'=>'Flash Operator Panel Addon');
+
 $config_meta['asterisk_recordings_enabled'] = array('default'=> 'false', 'section'=>'Recordings');
 $config_meta['asterisk_recordings_path'] = array('default' => '/var/spool/asterisk/monitor', 'section'=>'Recordings');
+
 
 
 //Need configurable Channel detection in order to assign calls to users when they answer on cell phones.
@@ -84,7 +87,6 @@ $config_meta['asterisk_recordings_path'] = array('default' => '/var/spool/asteri
 //add asterisk vars to sugar config. need by Configurator class
 global $sugar_config;
 foreach ($config_meta as $key => $value) {
-
 	if (!isset($sugar_config[$key])) {
 		$sugar_config[$key] = '';
 		$GLOBALS['sugar_config'][$key] = '';
@@ -98,8 +100,7 @@ if(!empty($_POST['save'])){
 	//set defaults for saving
 
     foreach ($config_meta as $key => $value) {
-		// TODO I'm still unclear what the purpose of the following line is... seems like it should be != ''
-        // BR Modified so now if empty params come in they aren't required.
+	   // BR Modified so now if empty params come in they aren't required.
         if (isset($_REQUEST[$key]) && $_REQUEST[$key] == '') {
             if( isset($value['required']) && $value['required'] != "true") {
 				$_REQUEST[$key] = $value['default'];
@@ -134,6 +135,14 @@ foreach ($config_meta as $key => $value) {
     $asterisk_config[$key] = $value['default'];
 }
 
+try {
+    $statResult = $GLOBALS['db']->query("select count(*) as CallsLogged from calls_cstm where calls_cstm.asterisk_caller_id_c is not NULL");
+    $statRow = $GLOBALS['db']->fetchByAssoc($statResult);
+    $callsLogged = $statRow['CallsLogged'];
+}
+catch(Exception $ex) {
+    $callsLogged = "Unknown";
+}
 
 require_once('include/Sugar_Smarty.php');
 $sugar_smarty = new Sugar_Smarty();
@@ -144,6 +153,7 @@ $sugar_smarty->assign('APP_LIST', $app_list_strings);
 
 $sugar_smarty->assign('config', $configurator->config);
 $sugar_smarty->assign('asterisk_config', $asterisk_config);
+$sugar_smarty->assign('callsLogged', $callsLogged);
 
 $sugar_smarty->assign('error', $configurator->errors);
 

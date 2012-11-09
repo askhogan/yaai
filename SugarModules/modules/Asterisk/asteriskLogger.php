@@ -105,7 +105,6 @@ class SugarSoap extends nusoapclient
         if (is_array($result) && array_key_exists("error", $result) && $result['error']['number'] != 0) {
             $this->login();
             $result = parent::call($method, $params);
-
         }
         //print_r($result);
         return ($result);
@@ -228,8 +227,10 @@ if( $argc > 1 && $argv[1] == "test" ) {
 
 	print "Entered test mode!";
 
+
+
 	$obj = findSugarObjectByPhoneNumber("4102152497");
-	print "findUserByAsteriskExtension(52) returned: " . findUserByAsteriskExtension("52") . "\n";
+	print "findUserByAsteriskExtension(51) returned: " . findUserByAsteriskExtension("51") . "\n";
 	print "findUserByAsteriskExtension(207) returned: " . findUserByAsteriskExtension("207") . "\n";
 	print "findUserByAsteriskExtension(710) returned: " . findUserByAsteriskExtension('710') . "\n";
 	findUserByAsteriskExtension('206');
@@ -253,7 +254,11 @@ while (true) {
     // connect to Asterisk server
     $amiSocket = fsockopen($asteriskServer, $asteriskManagerPort, $errno, $errstr, 5);
     if (!$amiSocket) {
+<<<<<<< HEAD
         logLine( "! Error $errno connecting to Asterisk: $errstr");
+=======
+        logLine( "  __ ERROR $errno connecting to Asterisk: $errstr __");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
 		sleep(5); // retry connecting
 		continue;
     } else {
@@ -265,8 +270,23 @@ while (true) {
     fputs($amiSocket, $asteriskUser);
     fputs($amiSocket, $asteriskSecret);
     fputs($amiSocket, "Events: call,hud\r\n\r\n"); // to monitor just call data, for Asterisk Manager 1.0 remove hud
+<<<<<<< HEAD
     $result = fgets($amiSocket, 4096);
     logLine("! AMI Login action returned with rc=$result\n");
+=======
+    $result = AMI_ReadResponse($amiSocket,2000000);
+    logLine("  AMI Login action raw response:\n" . markdown_indent($result) );
+    if( AMI_WasCmdSuccessful($result) ) {
+        logLine("  AMI Login was a *success!*");
+        logLine("Waiting for call events...");
+    }
+    else {
+        logLine("  __ERROR: AMI Login FAILED__, Depending on your asterisk version helpful info may be above.\n  **Check Asterisk Username / Password in config, then verify AMI user has proper permissions in manager.conf**\n\n");
+        sleep(5);
+        continue;
+    }
+
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
     $event = '';
     $stack = 0;
 
@@ -277,6 +297,7 @@ while (true) {
 
 	stream_set_timeout($amiSocket,60); // sets timeout to 60 seconds.
 	$consecutiveFailures = 0;
+    $queueChannels = array();
 
     // Keep a loop going to read the socket and parse the resulting commands.
 	// Apparently there is no good way to detect if socket is still alive???
@@ -306,7 +327,8 @@ while (true) {
 
                 if ($e['Event'] == 'Join' && !empty($e['Queue']) /*&& in_array($e['Queue'], $allowedQueueIds)*/ )
                 {
-                    $channel = $e['Channel']; // TODO add a map for relating queue channels to UniqueId
+                    $queueChannels[ AMI_getUniqueIdFromEvent($e) ] = $e['Channel']; // TODO: This array will grow indefinitely... the data put into it is pretty small so probably fine for now but would be best to have a expiration policy.
+                                // Easy solution would be to test during the hangup event... IF( isset($queueChannels[ $e['UniqueID'] ] ) remove the index for $e['UniqueID']
                 }
 
 				//
@@ -359,6 +381,23 @@ while (true) {
 
 					$tmpCallerID = trim($e['CallerIDNum']); //Asterisk Manager 1.0 $e['CallerID']
 
+                    // Typically for outbound calls there are NewCallerID events which contain the phone number dialed.
+                    // This isn't the case on POTS lines.
+                    // The dialstring will be like g0/14101234567 for outbound calls and 14101234567 for inbound
+                    // Regex only matches the outbound case since in the inbound case the CallerIDNum variable is set properly.
+                    // Note: this cases also seems to happen on the INTERNAL inbound call events to Ring Groups which is harmless.
+                    if( !empty($e['Dialstring']) ) {
+                        if( preg_match("/(.*?\/)(\d+)/",$e['Dialstring'], $ds_matches) ) {
+                            $tmpCallerID = $ds_matches[2];
+                            logLine(" CallerID set from Dialstring to: " . $tmpCallerID );
+                        }
+                    }
+
+                    // Fix for issue on some asterisk 1.8 boxes where CallerId on click to dial is not set.  See https://github.com/blak3r/yaai/issues/75
+                    if ($tmpCallerID == '<unknown>' && !empty($e['ConnectedLineNum'])) {
+                        $tmpCallerID = trim($e['ConnectedLineNum']);
+                        logLine( " CallerID set from ConnectedLineNum to $tmpCallerID");
+                    }
 
 					if (startsWith($tmpCallerID,$calloutPrefix)) {
 						logLine ("  Stripping callout prefix: $calloutPrefix\n");
@@ -373,12 +412,13 @@ while (true) {
 					logLine("* CallerID is: $tmpCallerID\n");
 
                     // Check to see if this Dial Event is coming off a Queue.  If so we override the channel with the one we saved previously in Join Event.
-                    if (!empty($e['ConnectedLineNum'])
-                        /*&& in_array($e['ConnectedLineNum'], $allowedQueueIds)*/
-                        && $channel)  // TODO add a map for relating queue channels to UniqueId
+                    if (!empty($e['ConnectedLineNum']) &&
+                       isset($queueChannels[ AMI_getUniqueIdFromEvent($e) ]) )
                     {
+                        // TODO: This code needs to be verified... author didn't have queues.
+                        // The idea here is to use the channel from the Queue Join event to find the true source channel.  Otherwise queue calls would get detected as internal calls.
                         logLine("Inbound From QUEUE detected, overriding: {$e['Channel']} with $channel");
-                        $eChannel = $channel;
+                        $eChannel = $queueChannels[ AMI_getUniqueIdFromEvent($e) ];
                     }
 
 					$rgDetectRegex = "/" . $sugar_config['asterisk_rg_detect_expr'] . "/i"; // TODO make this a configuration option
@@ -401,7 +441,7 @@ while (true) {
 							$callDirection = 'Outbound';
 							logLine("OUTBOUND state detected... $asteriskMatchInternal is astMatchInternal eChannel= " . $eChannel . ' eDestination=' . $eDestination . "\n");
 						} else if (!preg_match($asteriskMatchInternal, $eChannel)) {
-							$query         = sprintf("INSERT INTO asterisk_log (asterisk_id, call_record_id, channel, remote_channel, callstate, direction, CallerID, timestampCall, asterisk_dest_id) VALUES('%s','%s','%s','%s','%s','%s','%s',%s,'%s')", $e['UniqueID'], $callRecordId, $eDestination, $eChannel, 'Dial', 'I', $tmpCallerID, 'FROM_UNIXTIME('.time().')', $e['DestUniqueID']);
+							$query         = sprintf("INSERT INTO asterisk_log (asterisk_id, call_record_id, channel, remote_channel, callstate, direction, CallerID, timestampCall, asterisk_dest_id) VALUES('%s','%s','%s','%s','%s','%s','%s',%s,'%s')", AMI_getUniqueIdFromEvent($e), $callRecordId, $eDestination, $eChannel, 'Dial', 'I', $tmpCallerID, 'FROM_UNIXTIME('.time().')', $e['DestUniqueID']);
 							$callDirection = 'Inbound';
 							logLine("Inbound state detected... $asteriskMatchInternal is astMatchInternal eChannel= " . $eChannel . ' eDestination=' . $eDestination . "\n");
 						}
@@ -464,48 +504,31 @@ while (true) {
 				//
 				//Asterisk Manager 1.1
 				if ($e['Event'] == 'NewCallerid') {
-					$id          = $e['Uniqueid'];
+					$id          = AMI_getUniqueIdFromEvent($e);
 					$tmpCallerID = trim($e['CallerIDNum']);
-					//echo ("* CallerID is: $tmpCallerID\n");
 					if ((strlen($calloutPrefix) > 0) && (strpos($tmpCallerID, $calloutPrefix) === 0)) {
 						echo ("* Stripping prefix: $calloutPrefix");
 						$tmpCallerID = substr($tmpCallerID, strlen($calloutPrefix));
 					}
+<<<<<<< HEAD
 					logLine("  {e['UniqueId']} CallerID  Changed to: $tmpCallerID\n");
 					// Fetch associated call record
 					//$callRecord = findCallByAsteriskId($id);
+=======
+					logLine("  CallerID  Changed to: $tmpCallerID\n");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
 					$query = "UPDATE asterisk_log SET CallerID='" . $tmpCallerID . "', callstate='Dial' WHERE asterisk_id='" . $id . "'";
 					mysql_checked_query($query);
 				}
-				//Asterisk Manager 1.0
-
-				/* if($e['Event'] == 'NewCallerid')
-				{
-				$id = $e['Uniqueid'];
-				$tmpCallerID = trim($e['CallerID']);
-				echo("* CallerID is: $tmpCallerID\n");
-				if ( (strlen($calloutPrefix) > 0)  && (strpos($tmpCallerID, $calloutPrefix) === 0) )
-				{
-				echo("* Stripping prefix: $calloutPrefix");
-				$tmpCallerID = substr($tmpCallerID, strlen($calloutPrefix));
-				}
-				echo("* CallerID is: $tmpCallerID\n");
-				// Fetch associated call record
-				//$callRecord = findCallByAsteriskId($id);
-				$query = "UPDATE asterisk_log SET CallerID='" . $tmpCallerID . "', callstate='Dial' WHERE asterisk_id='" . $id . "'";
-				mysql_checked_query($query);
-				};*/
 
 				//
 				// Process "Hangup" events
-				// Yup, we really get TWO hangup events from Asterisk!
+				// Yup, we really get TWO hangup events from Asterisk!  (Even more with Ringgroups)
 				// Obviously, we need to take only one of them....
 				//
 				// Asterisk Manager 1.1
-				// I didn't get the correct results from inbound calling in relation to the channel that answered, this solves that.
-
 				if ($e['Event'] == 'Hangup') {
-					$id        = $e['Uniqueid'];
+					$id        = AMI_getUniqueIdFromEvent($e);
 					$query     = "SELECT direction,contact_id FROM asterisk_log WHERE asterisk_dest_id = '$id' OR asterisk_id = '$id'";
 					$result    = mysql_checked_query($query);
 					$direction = mysql_fetch_array($result);
@@ -697,7 +720,7 @@ while (true) {
 					else {
 						//-----------------[ INBOUND HANGUP HANDLING ]----------------------
 
-						$id         = $e['Uniqueid'];
+						$id         = AMI_getUniqueIdFromEvent($e);
 						//
 						// Fetch associated call record
 						//
@@ -748,8 +771,6 @@ while (true) {
 								$callDescription = "";
 								if (!$failedCall) {
 									$callStatus = 'Held';
-									//$callName = "Successfull call";
-
 									$callName = $mod_strings['ASTERISKLBL_COMING_IN'];
 
 									// This means call description was updated through AJAX so lets not overwrite the subject/description already assigned to the call.
@@ -758,7 +779,7 @@ while (true) {
 										$callDescription = $callRecord['sweet']['description'];
 									}
 								} else {
-									$callStatus      = 'Missed';
+									$callStatus      = $sugar_config['asterisk_short_call_status'];  // User gets to choose if they should be Missed or Held, if Missed then it leaves an open activity which has to be closed.
 									$callName        = $mod_strings['CALL_NAME_MISSED'];
                                     $callDescription = "{$mod_strings['CALL_DESCRIPTION_MISSED']} ({$e['Cause-txt']}\n";
 									$callDescription .= "------------------\n";
@@ -768,7 +789,11 @@ while (true) {
                                         $callDescription .= sprintf(" %-20s : %-40s\n", $mod_strings['CALL_DESCRIPTION_CALLER_ID'], $rawData['opencnam']);
                                     }
 
+<<<<<<< HEAD
 									logLine("Adding INBOUND Failed Call, id=$id, call_id = " . $callRecord['sweet']['id'] . "\n");
+=======
+									logLine("  Adding INBOUND Missed (or Failed) Call, id=$id, call_id = " . $callRecord['sweet']['id'] . "\n");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
 								}
 
 
@@ -816,11 +841,19 @@ while (true) {
 								//
 								// ... on success also update entry in Calls module
 								//
+<<<<<<< HEAD
 								logLine( "# (INBOUND) now updating record in /Calls/ id=" . $callRecord['sweet']['id'] . "...\n");
 
 								print_r($callRecord);
 								logLine("NAME: " . $callRecord['sweet']['name'] . "\n");
 								logLine("DESCRIPTION: " . $callRecord['sweet']['description'] . "\n");
+=======
+								logLine( " Updating record in /Calls/ id=" . $callRecord['sweet']['id'] . "...\n");
+
+								//print_r($callRecord);
+								logLine("  NAME: " . $callRecord['sweet']['name'] . "\n");
+								logLine("  DESCRIPTION: " . $callRecord['sweet']['description'] . "\n");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
 
 
 								$soapResult = $soapClient->call('set_entry', array(
@@ -937,7 +970,7 @@ while (true) {
 
 					} else {
 						if ($e['Event'] == 'Bridge') //Outbound bridge event
-							{
+						{
 							$query = "UPDATE asterisk_log SET callstate='Connected', timestampLink=FROM_UNIXTIME(".time().") WHERE asterisk_id='" . $e['Uniqueid1'] . "' OR asterisk_id='" . $e['Uniqueid2'] . "'";
 							$rc    = mysql_checked_query($query);
 						}
@@ -946,9 +979,9 @@ while (true) {
                     // Here we add support for complicated Ring Groups such as x1 ---> 615  ---> 710,722,735
                     //                                                            \--> 620  ---> 810,811,812
                     // Check if both channels are internal... Then, check the asterisk_log table to see if an entry exists where Channel matches one of them... if so then change it out.
-                    // TBD: does answering on a cell phone and not pressing 1 to accept cause a bridge event that messes this up?  s
+                    // TBD: does answering on a cell phone and not pressing 1 to accept cause a bridge event that messes this up?
                     if( isCallInternal($e['Channel1'],$e['Channel2'] )) {
-                        logLine("Internal Bridge Event Detected\n");
+                        logLine("Internatl Bridge Event Detected\n");
                         if( preg_match('/(.*);(.*)/',$e['Channel1'],$matches) ) {
                             $chanToFind = $matches[1] . '%';
                             $query     = "SELECT id FROM asterisk_log WHERE channel like '$chanToFind' and direction='I' ";
@@ -956,10 +989,10 @@ while (true) {
                             $result    = mysql_checked_query($query);
                             // TODO clean up all these logLines.
                             if( mysql_num_rows( $result) > 1){
-                                logLine("Internal ERROR: MULTIPLE MATCHING LINES IN ASTERISK LOG... BRIDGE LOGIC ISN'T BULLETPROOF\n");
+                                logLine("RG-Bridge ERROR: MULTIPLE MATCHING LINES IN ASTERISK LOG... BRIDGE LOGIC ISN'T BULLETPROOF\n");
                             }
                             else if( mysql_num_rows($result) == 1 ) {
-                                logLine("Internal Changing the channel to: {$e['Channel2']}\n" );
+                                logLine(" RG-Bridge Detected changing the channel to: {$e['Channel2']}\n" );
                                 $result_id = mysql_fetch_array($result);
                                 $chan2 = $e['Channel2'];
                                 $theId = $result_id['id'];
@@ -969,7 +1002,7 @@ while (true) {
                             }
                         }
                         else {
-                            logLine("Internal Didn't match regex.\n");
+                            logLine("RG-Bridge didn't match regex.\n");
                         }
                     }
 				}
@@ -987,8 +1020,6 @@ while (true) {
 
 				// Reset event buffer
 				$event = '';
-
-
 			}
         }
 
@@ -1004,22 +1035,28 @@ while (true) {
         }
 
         // for if the connection to the sql database gives out.
+        // TODO Find a better way to check the connection.  I think on Shared Hosting Servers mysql_ping might be disabled which causes this to always reconnect.
         if (!mysql_ping($sql_connection)) {
             //here is the major trick, you have to close the connection (even though its not currently working) for it to recreate properly.
             logLine("MySQL connection lost, reconnecting\n");
             mysql_close($sql_connection);
             $sql_connection = mysql_connect($sugar_config['dbconfig']['db_host_name'], $sugar_config['dbconfig']['db_user_name'], $sugar_config['dbconfig']['db_password']);
             $sql_db         = mysql_select_db($sugar_config['dbconfig']['db_name']);
-
         }
 
     }
 
+<<<<<<< HEAD
 
     logLine(getTimestamp() . " # Event loop terminated, attempting to login again\n");
+=======
+    logLine(getTimestamp() . "Event loop terminated, attempting to login again\n");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
     sleep(1);
 }
 
+// TODO i've seen asteriskLogger crash due to a script executing too long error...  It was on a pretty budget shared hosting server.
+// Hasn't ever happened to me personally... but still something noteworthy.
 
 exit(0);
 
@@ -1068,7 +1105,7 @@ function dumpEvent(&$event)
 {
     // Skip 'Newexten' events - there just toooo many of 'em || For Asterisk manager 1.1 i choose to ignore another stack of events cause the log is populated with useless events
     if ($event['Event'] === 'Newexten' || $event['Event'] == 'UserEvent' || $event['Event'] == 'AGIExec' || $event['Event'] == 'Newchannel' || $event['Event'] == 'Newstate' || $event['Event'] == 'ExtensionStatus') {
-        LogLine("! AMI Event '". $event['Event']. " surpressed.\n");
+        LogLine("! AMI Event '". $event['Event']. " suppressed.\n");
         return;
     }
 
@@ -1223,7 +1260,7 @@ function findSugarAccountByPhoneNumber($aPhoneNumber)
     $searchPattern = $aPhoneNumber;
 
     $aPhoneNumber = preg_replace( '/\D/', '', $aPhoneNumber); // removes everything that isn't a digit.
-    if( preg_match('/([0-9]{7})$/',$aPhoneNumber,$matches) ){
+    if( preg_match('/([0-9]{10})$/',$aPhoneNumber,$matches) ){
         $aPhoneNumber = $matches[1];
     }
 
@@ -1266,7 +1303,7 @@ function findSugarAccountByPhoneNumber($aPhoneNumber)
 // Attempt to find a Sugar object (Contact,..) by phone number
 //
 // NOTE: As of v2.2, callListener now updates a column in asterisk_log table with contact_id so it doesn't have to perform
-// a complex query each time.  But, since callListener only works when you're logged into sugar and have "Call Notification" on.
+// a complex query each time.  But, since callListener only works when you're logged into sugar and have "Call Notification" on...
 // we still have to try and find object related to phone number here for the other cases.
 //
 //
@@ -1356,7 +1393,7 @@ function findSugarObjectByPhoneNumber($aPhoneNumber)
 
         if( count($uniqueEntryList) > 1 ) {
             $foundMultipleAccounts = FALSE;
-            $account_id = $resultDecoded['account_id'];
+            $account_id = $resultDecoded['account_id'];  // TODO Possible Undefined index Notice could result here...
             //logLine(print_r($resultDecoded,true));
             // TODO I had 43 entries returned for 2 contacts with matching number... need better distinct support.  Apparently, no way to do this via soap... probably need to create a new service endpoint.
             // TODO (continued) if you have a contact with no account associated... this will not associate it with the contact b/c it thinks there are 43 unique contacts being returned.
@@ -1364,7 +1401,8 @@ function findSugarObjectByPhoneNumber($aPhoneNumber)
             for($i=1; $i<count($uniqueEntryList); $i++ ) {
                 $resultDecoded = decode_name_value_list($uniqueEntryList[$i]['name_value_list']);
                // logLine(print_r($resultDecoded,true));
-                if( $account_id != $resultDecoded['account_id'] ) {
+                if( isset($resultsDecoded['account_id']) &&
+                    $account_id != $resultDecoded['account_id'] ) {
                     $foundMultipleAccounts = TRUE;
                 }
             }
@@ -1424,13 +1462,16 @@ function findAccountForContact($aContactId)
 
     $soapResult = $soapClient->call('get_relationships', $soapArgs);
 
+<<<<<<< HEAD
     if ($soapResult['error']['number'] != '0') {
         logLine("! WARNING Soap call returned with error " . $soapResult['error']['number'] . " " . $soapResult['error']['name'] . " // " . $soapResult['error']['description'] . "\n");
         return FALSE;
     } else {
+=======
+    // TODO check if error exists first to prevent Notice about index not existing in log.
+    if( !isSoapResultAnError($soapResult) ) {
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
         // var_dump($soapResult);
-
-        isSoapResultAnError($soapResult);
 
         $assocCount = count($soapResult['ids']);
 
@@ -1441,7 +1482,6 @@ function findAccountForContact($aContactId)
             if ($assocCount > 1) {
                 logLine("! WARNING: More than one associated account found, using first one.\n");
             }
-
             $assoAccountID = $soapResult['ids'][0]['id'];
             logLine("# Associated account is $assoAccountID\n");
             return $assoAccountID;
@@ -1457,11 +1497,16 @@ function findAccountForContact($aContactId)
  */
 function isSoapResultAnError($soapResult) {
     $retVal = FALSE;
+<<<<<<< HEAD
     if ($soapResult['error']['number'] != 0) {
         logLine("! Warning: SOAP error " . $soapResult['error']['number'] . " " . $soapResult['error']['string'] . "\n");
+=======
+    if ( isset($soapResult['error']['number']) && $soapResult['error']['number'] != 0) {
+        logLine("! ***Warning: SOAP error*** " . $soapResult['error']['number'] . " " . $soapResult['error']['string'] . "\n");
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
         $retVal = TRUE;
     }
-    else if( $soapResult['result_count'] == 0 ) {
+    else if( !isset($soapResult['result_count']) || $soapResult['result_count'] == 0 ) {
         logLine("! No results returned\n");
         $retVal = TRUE;
     }
@@ -1564,12 +1609,32 @@ function extractExtensionNumberFromChannel( $channel )
 //
 function findUserByAsteriskExtension($aExtension)
 {
+<<<<<<< HEAD
     logLine("# +++ findUserByAsteriskExtension($aExtension)\n");
+=======
+    logLine("### +++ findUserByAsteriskExtension($aExtension)\n");
+    // The query below is actually pretty clever.  Recall that user extensions can be a comma seperated list.
+    // The 4 conditions are necessary 1) To match single extension case, 2) to match first extension in the list
+    // 3) to match one in the middle of list, 4) matches one at the end of a list.
+    $qry = "select id,user_name from users join users_cstm on users.id = users_cstm.id_c where ".
+           "(users_cstm.asterisk_ext_c='$aExtension' or users_cstm.asterisk_ext_c LIKE '$aExtension,%' ".
+           "OR users_cstm.asterisk_ext_c LIKE '%,$aExtension,%' OR users_cstm.asterisk_ext_c LIKE '%,$aExtension') and status='Active'";
+>>>>>>> ad1dc84a5950b23b974fc88580513f8c5a15d1d7
 
-	$qry = "select id from users join users_cstm on users.id = users_cstm.id_c where users_cstm.asterisk_ext_c=$aExtension and status='Active'";
 	$result = mysql_checked_query($qry);
 	if( $result ) {
 		$row = mysql_fetch_array($result);
+
+        // All this if statement does is detect if multiple users were returned and if so display warning.
+        if( mysql_num_rows($result) > 1 ) {
+            $firstUser = $row['user_name'];
+            $usernames = $row['user_name'];
+            while( $row2 = mysql_fetch_array($result) ) {
+                $usernames .= ", " . $row2['user_name'];
+            }
+            logLine("### __WARNING__ Extension $aExtension matches the following users: $usernames!  Call will be assigned to: $firstUser!");
+        }
+
 		return $row['id'];
 	}
 
@@ -1696,4 +1761,23 @@ function endsWith($haystack, $needle)
 }
 
 
+/**
+ * AMI event params are not consistent.
+ * Dial Events use 'UniqueID'
+ * Join and NewCallerID events use 'Uniqueid' and for all we know it might also vary between versions of asterisk
+ * So, this method just helps get the Unique ID for the call from the event.
+ * @return string set to either $event['UniqueID'], $event['Uniqueid'] or NULL (if neither is set).
+ */
+function AMI_getUniqueIdFromEvent( $event ) {
+    if( isset( $event['UniqueID']) ) {
+        return $event['UniqueID'];
+    }
+    else if( isset( $event['Uniqueid'] )) {
+        return $event['Uniqueid'];
+    }
+    return NULL;
+}
+
+
 ?>
+
